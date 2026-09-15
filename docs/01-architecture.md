@@ -1,6 +1,22 @@
+---
+title: 架构设计
+aliases:
+  - 架构设计
+  - Architecture
+tags:
+  - project/design
+  - ota
+  - bootloader
+  - flash-layout
+status: active
+created: 2026-09-15
+updated: 2026-09-16
+---
+
 # 01 架构设计
 
-> 本文是项目的技术图纸。功能范围与版本规划见 `00-project-plan.md`。
+> [!NOTE]
+> 本文是项目的技术图纸。功能范围与版本规划见 [00-project-plan.md](00-project-plan.md)。
 
 ---
 
@@ -20,35 +36,33 @@
 
 ## 2. 分层架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  app/          应用侧库（被用户的 App 链接）              │
-│                boot_confirm()  确认新固件可用             │
-│                boot_request_update()  请求进入 Bootloader │
-└─────────────────────────────────────────────────────────┘
-                            │
-┌─────────────────────────────────────────────────────────┐
-│  core/         纯逻辑层（零硬件依赖，PC 可测）★核心资产   │
-│  ─────────────┬──────────────┬──────────────┬──────── │
-│  │ boot_fsm    │ boot_meta    │ boot_image   │boot_proto│ │
-│  │ 升级状态机  │ 元数据双副本 │ 固件头解析   │命令协议│ │
-│  └─────────────┴──────────────┴──────────────┴────────┘ │
-│  ┌───────────────────────────────────────────────────── │
-│  │ boot_flash  通用 Flash 操作（只依赖 port 的擦除单元）│ │
-│  ─────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────
-              │                        │
-┌─────────────▼──────────┐  ┌──────────▼──────────────────┐
-│  port/                 │  │  transport/                 │
-│  移植契约（唯一接口）  │  │  uart（v1.0）/ can, eth     │
-│  ├ port.h              │  │  统一的 read/write 接口     │
-│  ├ stm32f1/  F103      │  └─────────────────────────────┘
-│   stm32f4/  F407      │
-└────────────────────────
-              │
-─────────────▼───────────────────────────────────────────┐
-│  硬件：STM32F103 / STM32F407                             │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    APP["app/ ── 应用侧库<br/>boot_confirm 确认新固件可用<br/>boot_request_update 请求进入 Bootloader"]
+
+    subgraph CORE["core/ ── 纯逻辑层（零硬件依赖 · PC 可测）★ 核心资产"]
+        direction LR
+        C1["boot_fsm<br/>升级状态机"]
+        C2["boot_meta<br/>元数据双副本"]
+        C3["boot_image<br/>固件头解析"]
+        C4["boot_proto<br/>命令协议"]
+        C5["boot_flash<br/>通用 Flash 操作"]
+    end
+
+    PORT["port/ ── 移植契约（唯一接口）<br/>port.h · stm32f1 · stm32f4"]
+    TRAN["transport/ ── 传输层<br/>uart（v1.0）· can · eth"]
+    HW["硬件：STM32F103 · STM32F407"]
+
+    APP --> CORE
+    CORE --> PORT
+    CORE --> TRAN
+    PORT --> HW
+    TRAN --> HW
+
+    classDef core fill:#e3f2fd,stroke:#1976d2,color:#0d47a1
+    classDef hw fill:#f5f5f5,stroke:#9e9e9e,color:#424242
+    class C1,C2,C3,C4,C5 core
+    class HW hw
 ```
 
 **依赖方向严格单向**：`core` 依赖 `port` 与 `transport` 的**接口**，`port` / `transport` 的实现依赖硬件。`core` 永远不知道自己是跑在 F1 还是 F4 上。
@@ -116,6 +130,7 @@
     └── ISSUE_TEMPLATE/
 ```
 
+> [!NOTE]
 > `CODE_OF_CONDUCT.md`、`CONTRIBUTING.md`、Issue/PR 模板在 GitHub 仓库公开后补充。
 
 ---
@@ -353,29 +368,22 @@ typedef struct {
 
 ### 7.2 状态转换图
 
-```
-                    ┌──────────────────────────────┐
-                    │                              │
-                    ▼                              │
-  上电 ────────► IDLE ──────(收到升级请求)────► RECEIVING
-                    │                              │
-                    │                        (接收完 + 校验通过)
-                    │                              ▼
-                    │                          VERIFIED
-                    │                              │
-                    │                        (切换激活槽)
-                    │                              ▼
-                    │                        PENDING_TEST
-                    │                         │         │
-                    │              (App 调用 boot_confirm)│(attempts > 3)
-                    │                         ▼         ▼
-                    │                     CONFIRMED   ROLLBACK
-                    │                         │         │
-                    └────────(跳转 App)───────┴─────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE : 上电
+    IDLE --> RECEIVING : 收到升级请求
+    RECEIVING --> IDLE : 掉电 / 中断（旧固件不受影响）
+    RECEIVING --> VERIFIED : 接收完 + 校验通过
+    VERIFIED --> PENDING_TEST : 切换激活槽
+    PENDING_TEST --> CONFIRMED : App 调用 boot_confirm
+    PENDING_TEST --> ROLLBACK : boot_attempts 超过 3
+    ROLLBACK --> CONFIRMED : 切回旧槽
+    CONFIRMED --> [*] : 跳转 App
 ```
 
 ### 7.3 核心不变式
 
+> [!IMPORTANT]
 > **任意时刻断电，下次上电必然回到一个可启动的状态。**
 
 推论（这些是设计检查清单）：

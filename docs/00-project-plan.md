@@ -1,7 +1,24 @@
+---
+title: 项目规划总览
+aliases:
+  - 项目规划
+  - 项目总览
+  - Roadmap
+tags:
+  - project/planning
+  - ota
+  - bootloader
+  - cortex-m
+status: active
+created: 2026-09-15
+updated: 2026-09-16
+---
+
 # 00 项目规划总览
 
+> [!NOTE]
 > 本文是项目的顶层规划：定位、功能范围、里程碑、开源运营。
-> 架构设计见 `01-architecture.md`，Git 与 GitHub 操作见 `02-git-and-github.md`。
+> 架构设计见 [01-architecture.md](01-architecture.md)，Git 与 GitHub 操作见 [02-git-and-github.md](02-git-and-github.md)。
 
 ---
 
@@ -30,6 +47,7 @@
 
 ### 验证标准（定位是否成立）
 
+> [!IMPORTANT]
 > 一个陌生人 clone 仓库后，**能照着 README 在一次会话内完成一次真实升级**。
 
 做不到这一点，定位就是失败的，优先修 README 和 Quick Start，而不是加功能。

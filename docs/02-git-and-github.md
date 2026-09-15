@@ -1,5 +1,22 @@
+---
+title: Git 与 GitHub 开发指南
+aliases:
+  - Git 指南
+  - 开发指南
+  - Git and GitHub
+tags:
+  - project/guide
+  - git
+  - github
+  - workflow
+status: active
+created: 2026-09-15
+updated: 2026-09-16
+---
+
 # 02 Git 与 GitHub 开源指南
 
+> [!NOTE]
 > 面向"没用过 Git"的嵌入式工程师。本文只讲这个项目实际会用到的部分。
 > 环境：Windows + PowerShell。
 
@@ -18,6 +35,7 @@
 
 **结论**：本机只有一个 2023 年的 Git 2.40.1，且不在 PATH 中。有两条可行路径，见第 1.1 节。
 
+> [!WARNING]
 > **安全提示**：Git 2.40.1 早于 2.45.1，存在已公开的 Windows 平台递归克隆远程代码执行漏洞（CVE-2024-32002 等）。若经常克隆来源不明的仓库，建议升级到 2.45.1 以上版本。
 
 ---
@@ -34,7 +52,8 @@
 winget install --id Git.Git -e --source winget
 ```
 
-⚠️ **注意**：如果提权被拦截，winget 仍会打印"已成功安装"，但实际什么也没装。**装完必须验证**：
+> [!CAUTION]
+> **注意**：如果提权被拦截，winget 仍会打印"已成功安装"，但实际什么也没装。**装完必须验证**：
 
 ```powershell
 git --version
@@ -68,6 +87,7 @@ git --version   # 应输出 git version 2.40.1.windows.1
 git --version
 ```
 
+> [!TIP]
 > 如果仍然提示找不到命令，说明 Git 的可执行目录没进 PATH。把**实际安装路径下的 `cmd` 目录**（例如 `C:\Program Files\Git\cmd` 或 `D:\Git\Git\cmd`）加入环境变量 Path，重开终端即可。
 
 ### 1.2 三项必要配置（Windows 上尤其重要）
@@ -567,42 +587,99 @@ git commit -m "..."
 
 ---
 
-## 12. 下一步（可立即执行的命令序列）
+## 12. 初始化执行记录（已完成）
 
-**前置步骤（重命名目录、`.gitignore`、`LICENSE`、`README.md`、`CHANGELOG.md`、CI、`code/` 骨架）已完成。** 剩下的是把 Git 跑起来并做首次提交。
+以下操作已在本机执行完毕，记录备查。换新机器时可按 12.1 重放。
+
+| 步骤 | 结果 |
+|---|---|
+| 让 `git` 可用 | winget 安装被提权拦截（报告成功但未生效），改用已有的 `D:\Git\Git`（2.40.1），其 `cmd` 目录已写入用户级 PATH |
+| 身份配置 | `user.name=1duck-duck1` · `user.email=2382085108@qq.com` |
+| 其他配置 | `core.autocrlf=true` · `core.quotepath=false` · `init.defaultBranch=main` |
+| 清理失效代理 | 删除 `http.proxy` / `https.proxy`（原指向未运行的 `127.0.0.1:1080`），删除后直连 GitHub 实测通过 |
+| SSH 密钥 | `ed25519`，`~/.ssh/id_ed25519`，公钥已添加到 GitHub |
+| 首次提交 | `7113c0e` chore: 初始化仓库，添加项目文档、许可证与 CI 配置 |
+| 远程 | `origin` = `git@github.com:1duck-duck1/cortex-m-ota-boot.git` |
+| 推送 | `git push -u origin main` 成功，`main` 已跟踪 `origin/main` |
+
+> [!WARNING]
+> `winget install Git.Git` 在本机会报告「已成功安装」，但实际未写入磁盘与注册表 —— 提权环节被静默拦截。若要安装新版 Git，必须手动下载安装包并右键「以管理员身份运行」，装完务必用 `git --version` 验证版本号。
+
+### 12.1 换新机器时的重放命令
 
 ```powershell
-# 1) 让 git 命令可用（二选一）
-#    路径 A：装新版（需要在带界面的终端里点 UAC 确认）
-winget install --id Git.Git -e --source winget
-#    路径 B：复用已有的 2.40.1
-$old = [Environment]::GetEnvironmentVariable("Path", "User")
-[Environment]::SetEnvironmentVariable("Path", "$old;D:\Git\Git\cmd", "User")
-# —— 之后必须重开终端 ——
-
-# 2) 基础配置（把占位内容替换成你自己的 GitHub 名字与邮箱）
-git config --global user.name "YourName"
-git config --global user.email "you@example.com"
+# 1) 配置身份与行为
+git config --global user.name "1duck-duck1"
+git config --global user.email "2382085108@qq.com"
 git config --global core.autocrlf true
 git config --global core.quotepath false
 git config --global init.defaultBranch main
 
-# 3) 验证
-git --version
-git config --global --list
+# 2) 生成 SSH 密钥并添加到 GitHub
+ssh-keygen -t ed25519 -C "2382085108@qq.com"
+# 把 ~/.ssh/id_ed25519.pub 的内容贴到 https://github.com/settings/keys
+ssh -T git@github.com          # 出现 Hi 用户名! 即成功
 
-# 4) 首次提交
-cd "f:\A_Git\2_OTA&Boot"
-git init
-git add .gitignore LICENSE README.md CHANGELOG.md docs .github code
-git commit -m "chore: 初始化仓库，添加项目文档、许可证与 CI 配置"
-git log --oneline --graph
-
-# 5) 推到 GitHub（先在网页上建好空仓库，拿到 SSH 地址）
-ssh -T git@github.com
-git remote add origin git@github.com:<你的用户名>/cortex-m-ota-boot.git
-git branch -M main
-git push -u origin main
+# 3) 克隆
+git clone git@github.com:1duck-duck1/cortex-m-ota-boot.git
 ```
 
-后续的分支开发、tag 与 Release 流程见第 6、9 节。
+---
+
+## 13. 文档写作规范（Obsidian 兼容）
+
+`docs/` 下的文档同时服务两个读者：**本地 Obsidian 知识库** 与 **GitHub 网页**。两者的 Markdown 支持范围并不完全重叠，因此约定只使用**两端都能正确渲染的语法子集**。
+
+### 13.1 允许使用的语法
+
+| 语法 | Obsidian | GitHub | 说明 |
+|---|:---:|:---:|---|
+| 标题 / 表格 / 代码块 / 任务列表 | 支持 | 支持 | 基础语法 |
+| callout：`NOTE` `TIP` `IMPORTANT` `WARNING` `CAUTION` | 支持 | 支持 | **仅这 5 种两端通用** |
+| Mermaid 代码块 | 支持 | 支持 | 架构图、流程图、状态机一律用它 |
+| YAML frontmatter | 支持 | 渲染为表格 | 可接受 |
+| 标准相对链接 | 支持 | 支持 | 见 13.3 |
+| 折叠块 `<details>` | 支持 | 支持 | 用于放次要内容 |
+
+### 13.2 禁止使用的语法
+
+| 语法 | 原因 |
+|---|---|
+| `[[wikilink]]` | GitHub 不识别，会显示成字面文本 |
+| `[!info]` `[!todo]` `[!success]` `[!danger]` `[!bug]` `[!example]` `[!quote]` | Obsidian 独有，GitHub 上退化为字面文本 |
+| ASCII 艺术图 | 跨平台编码易损坏，窄屏下错乱，改用 Mermaid |
+| 绝对路径链接 | 换机器即失效 |
+
+> [!CAUTION]
+> ASCII 框图是实测踩过的坑：本项目的架构图最初以 ASCII 绘制，写入文件时框线字符大量丢失，文档直接不可读。所有图形此后统一改用 Mermaid。
+
+### 13.3 让 Obsidian 使用标准链接
+
+Obsidian 默认生成 `[[wikilink]]`，需要改掉：
+
+**设置 → 文件与链接 → 新链接格式 → 选择「相对路径」**
+
+改完之后，Obsidian 生成和识别的都是标准 Markdown 链接，GitHub 上也能点击，两边统一。文档内引用一律写成 `[显示文字](01-architecture.md)`。
+
+### 13.4 frontmatter 字段约定
+
+```yaml
+---
+title: 文档标题
+aliases:            # Obsidian 中用于别名搜索与 [[ 补全
+  - 别名一
+tags:               # Obsidian 标签树，用 / 分层
+  - project/planning
+status: active      # active | draft | archived
+created: 2026-09-15
+updated: 2026-09-16
+---
+```
+
+命名约定：文件名 `NN-kebab-case.md`，`NN` 为两位序号，决定 Obsidian 侧边栏排序。当前使用：
+
+| 文件 | 序号 | tags |
+|---|:---:|---|
+| `00-project-plan.md` | 00 | `project/planning` |
+| `01-architecture.md` | 01 | `project/design` |
+| `02-git-and-github.md` | 02 | `project/guide` |
