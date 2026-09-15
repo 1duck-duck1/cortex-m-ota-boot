@@ -150,7 +150,7 @@ Bootloader 自更新、差分升级、云平台/服务器端、图形化上位�
 
 ```bash
 # 1. 获取代码
-git clone https://github.com/YOURNAME/cortex-m-ota-boot.git
+git clone https://github.com/1duck-duck1/cortex-m-ota-boot.git
 cd cortex-m-ota-boot
 
 # 2. 编译 Bootloader（以 F407 为例）
