@@ -10,14 +10,14 @@
 [![Platform](https://img.shields.io/badge/platform-STM32F407-orange.svg)](#-硬件要求)
 [![Language](https://img.shields.io/badge/language-C99-00599C.svg)](#-仓库结构)
 [![CI](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml/badge.svg)](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-贡献)
 
 </div>
 
-> [!WARNING]
-> **项目处于早期规划阶段（v0.0.0）**
-> 代码尚未提交，当前仓库仅包含设计与规划文档。快速开始一节描述的是目标形态，将在 v0.1.0 起逐步可用。
+> [!NOTE]
+> **v0.1.0 已发布：最小 Bootloader 双向跳转闭环可用**
+> Boot 与演示 App 双工程编译零错误，代码见 `Keil_OTA_Boot/`，真板验收步骤见 [实现详解 §6](docs/04-boot-implementation.md)。当前构建基于 Keil MDK-ARM（AC5）；快速开始一节的 CMake 工具链为目标形态，将随 v0.2.0 起逐步落地。
 
 ---
 
@@ -150,10 +150,10 @@ stateDiagram-v2
 
 | 编号 | 功能 | 状态 |
 |---|---|:---:|
-| F-01 | 应用有效性校验（magic / CRC / HW ID） | 📋 |
-| F-02 | 应用跳转（VTOR / MSP / 外设反初始化） | 📋 |
-| F-03 | 应用侧请求进入 Bootloader | 📋 |
-| F-04 | 启动失败保护 | 📋 |
+| F-01 | 应用有效性校验（magic / CRC / HW ID） | 🚧 SP/PC 范围检查已实现，CRC 待 v0.2 |
+| F-02 | 应用跳转（VTOR / MSP / 外设反初始化） | ✅ |
+| F-03 | 应用侧请求进入 Bootloader | ✅ |
+| F-04 | 启动失败保护 | ✅ 计数拒跳；自动回滚待双槽（v0.3） |
 | F-05 | 传输抽象层 | 📋 |
 | F-06 | YMODEM 接收（含重传与超时） | 📋 |
 | F-08 | 固件头解析 | 📋 |
@@ -163,7 +163,7 @@ stateDiagram-v2
 | F-12 | A/B 分区切换 | 📋 |
 | F-13 | 掉电安全 | 📋 |
 | F-14 | 启动失败自动回滚 | 📋 |
-| F-15 | 应用侧确认接口 | 📋 |
+| F-15 | 应用侧确认接口 | ✅ |
 | F-16 | 自身分区写保护 | 📋 |
 | F-17 | 固件打包工具 | 📋 |
 | F-18 | 上位机升级工具 | 📋 |
@@ -187,6 +187,18 @@ Bootloader 自更新、差分升级、云平台/服务器端、图形化上位�
 完整的功能范围与取舍理由见 [项目规划](docs/00-project-plan.md)。
 
 ## 🚀 快速开始
+
+**当前（v0.1.0，Keil MDK-ARM + AC5）**——用 Keil 分别打开两个工程，编译并烧录即可验证双向跳转闭环：
+
+```text
+Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx   ← Bootloader（0x08000000）
+Keil_OTA_Boot/MDK-ARM/fake_app.uvprojx        ← 演示 App（0x08010000）
+```
+
+烧录顺序与寄存器观察方法见 [实现详解 §6](docs/04-boot-implementation.md)。
+
+**目标形态（CMake + GCC 工具链，随 v0.2.0 起逐步落地）**：
+
 ```bash
 # 1. 获取代码
 git clone https://github.com/1duck-duck1/cortex-m-ota-boot.git
@@ -200,7 +212,7 @@ cmake --build build/f407
 ota flash --port COM3 firmware.pkg
 ```
 
-**工具链依赖**：`arm-none-eabi-gcc` · `cmake` · `ninja` · Python 3.8+
+**工具链依赖**：当前仅需 Keil MDK-ARM 5.38+（AC5）；目标形态另需 `arm-none-eabi-gcc` · `cmake` · `ninja` · Python 3.8+
 
 ## 🛣️ 路线图
 
@@ -220,19 +232,18 @@ ota flash --port COM3 firmware.pkg
 
 ```text
 .
-├── Drivers/                  ST 官方代码（CMSIS + HAL 最小子集）
-├── code/                     源代码
-│   ├── core/                 纯逻辑层（零硬件依赖，PC 可测）
-│   ├── mcu/                  芯片层（只有 stm32f4）
-│   │   └── stm32f4/          时钟 · Flash 擦写 · 跳转 · 串口 · 启动汇编 · 链接脚本
-│   ├── transport/            传输层（uart / can）
-│   ├── app/                  应用侧库
-│   ├── bsp/                  示例工程
-│   ├── tools/                固件打包与上位机
-│   └── tests/                PC 端单元测试（含断电注入）
-├── docs/                     设计与规划文档
+├── Keil_OTA_Boot/            v0.1.0 可编译的 Keil MDK-ARM 工程
+│   ├── Boot/                 Bootloader 核心模块（conf / flag / jump / main）
+│   ├── App/                  应用侧接口 boot_client + 演示 App
+│   ├── Core/                 CubeMX 生成（时钟 / GPIO / 中断）
+│   ├── Drivers/              ST 官方代码（CMSIS + HAL 最小子集）
+│   └── MDK-ARM/              Boot 与 fake_app 两个独立工程
+├── docs/                     设计与实现文档
 └── .github/workflows/        CI
 ```
+
+> [!TIP]
+> 规划中的 `core` / `mcu` / `transport` 分层（纯逻辑层 PC 可测，见 [架构设计](docs/01-architecture.md)）将在 v0.2.0 引入传输层时落地，v0.1.0 按"最小闭环"纪律直接以 Keil 工程交付。
 
 ## 📚 文档
 
@@ -241,6 +252,8 @@ ota flash --port COM3 firmware.pkg
 | [项目规划](docs/00-project-plan.md) | 定位、功能清单、里程碑与验收标准、开源运营、风险清单 |
 | [架构设计](docs/01-architecture.md) | 分层架构、芯片层接口、分区布局、数据格式、升级状态机、F4 平台约束 |
 | [开发指南](docs/02-git-and-github.md) | Git 配置、提交规范、分支策略、文档写作规范 |
+| [代码风格](docs/03-code-style.md) | 命名规范、CubeMX 区纪律、注释与格式硬性纪律 |
+| [实现详解](docs/04-boot-implementation.md) | v0.1.0 实现决策记录：BKP 通信、跳转清单逐项分析、掉电窗口、已知妥协、上板验收手册 |
 
 ## ⚠️ 风险提示
 > [!CAUTION]
