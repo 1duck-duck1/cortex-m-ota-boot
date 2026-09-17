@@ -28,10 +28,16 @@ Testing/
 *.axf
 *.iex
 *.htm
-MDK-ARM/DebugConfig/
-MDK-ARM/RTE/
-MDK-ARM/Objects/
-MDK-ARM/Listings/
+*.lst
+*.log
+**/MDK-ARM/Objects/
+**/MDK-ARM/Listings/
+**/MDK-ARM/Keil_OTA_Boot/
+**/MDK-ARM/fake_app/
+
+# ---- J-Link ----
+JLinkLog.txt
+JLinkSettings.ini
 
 # ---- IAR ----
 Debug/
