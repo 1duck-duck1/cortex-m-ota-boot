@@ -296,14 +296,14 @@ git commit -m "chore: 移除误提交的构建产物"
 | `refactor` | 重构，不改行为 | `refactor(core): 抽出 erase_unit 抽象以支持 F4 sector` |
 | `perf` | 性能优化 | `perf(flash): 减少擦除单元重复查询` |
 | `test` | 测试相关 | `test(meta): 增加写入过程中断电注入用例` |
-| `docs` | 文档 | `docs(port): 补充 F4 RamFunc 移植说明` |
+| `docs` | 文档 | `docs(mcu): 补充 F4 RamFunc 必须常驻 RAM 的说明` |
 | `build` | 构建系统 | `build: 添加 arm-none-eabi-gcc 交叉编译选项` |
 | `ci` | CI 配置 | `ci: 增加 host 端单元测试任务` |
 | `chore` | 杂项 | `chore: 更新 .gitignore` |
 
 ### 范围（scope）建议用模块名
 
-`core` / `fsm` / `meta` / `image` / `port` / `transport` / `tools` / `tests` / `docs`
+`core` / `fsm` / `meta` / `image` / `mcu` / `transport` / `tools` / `tests` / `docs`
 
 ### 好坏对比
 
@@ -312,7 +312,7 @@ git commit -m "chore: 移除误提交的构建产物"
 ❌ 修改了一下
 ❌ 123
 ✅ feat(image): 实现固件头 CRC 与 HW ID 校验
-✅ fix(port-f4): 修复擦写 Flash 时从 Flash 取指导致的 HardFault
+✅ fix(mcu-f4): 修复擦写 Flash 时从 Flash 取指导致的 HardFault
 ```
 
 **判断标准**：半年后你回来看这条 commit，能不能立刻知道它干了什么、为什么干。
@@ -461,10 +461,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: 安装工具链
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build
-      - name: 编译 F103 与 F407
+      - name: 编译 STM32F407 示例
         run: |
-          cmake -B build/f103 -G Ninja -DBOARD=stm32f103_demo
-          cmake --build build/f103
           cmake -B build/f407 -G Ninja -DBOARD=stm32f407_demo
           cmake --build build/f407
 
@@ -489,7 +487,7 @@ jobs:
 ### 打 tag（对应 `00-project-plan.md` 里的里程碑）
 
 ```powershell
-git tag -a v0.1.0 -m "首个可运行版本：F103 双向跳转"
+git tag -a v0.1.0 -m "首个可运行版本：F407 双向跳转"
 git push origin v0.1.0
 ```
 

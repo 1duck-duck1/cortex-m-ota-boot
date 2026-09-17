@@ -33,10 +33,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build
-      - name: 编译 STM32F103 示例
-        run: |
-          cmake -B build/f103 -G Ninja -DBOARD=stm32f103_demo
-          cmake --build build/f103
       - name: 编译 STM32F407 示例
         run: |
           cmake -B build/f407 -G Ninja -DBOARD=stm32f407_demo
