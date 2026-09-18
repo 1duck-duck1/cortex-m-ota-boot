@@ -1,0 +1,83 @@
+# ---- 构建产物 ----
+build/
+output/
+*.o
+*.d
+*.a
+*.elf
+*.map
+*.hex
+*.bin
+*.pkg
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# ---- Keil MDK ----
+*.uvguix.*
+*.uvoptx
+*.uvprojx.bak
+*.scvd
+*.dep
+*.crf
+*.lnp
+*.axf
+*.iex
+*.htm
+*.lst
+*.log
+**/MDK-ARM/Objects/
+**/MDK-ARM/Listings/
+**/MDK-ARM/Keil_OTA_Boot/
+**/MDK-ARM/fake_app/
+
+# ---- J-Link ----
+JLinkLog.txt
+JLinkSettings.ini
+
+# ---- IAR ----
+Debug/
+Release/
+*.ewt
+*.ewd
+*.ewp.bak
+*.dep
+
+# ---- 编辑器与 IDE ----
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+
+# ---- Obsidian（本地笔记软件配置，与项目无关） ----
+.obsidian/
+.trash/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 密钥与本地敏感配置（务必保留，防止误提交） ----
+*.pem
+*.key
+secrets.h
+boot_keys/
+local_config.h
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini

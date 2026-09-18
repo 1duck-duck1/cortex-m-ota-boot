@@ -1,0 +1,20 @@
+; *************************************************************
+; *** App 链接脚本（Slot A），分区与 boot_conf.h 保持一致     ***
+; *** Flash：0x08020000 起 384 KB（sector 5-7）              ***
+; *** SRAM2 顶部 32 字节 0x2001FFE0 为 Boot 邮箱，禁止分配   ***
+; *************************************************************
+
+LR_IROM1 0x08020000 0x00060000  {    ; load region size_region
+  ER_IROM1 0x08020000 0x00060000  {  ; load address = execution address
+   *.o (RESET, +First)
+   *(InRoot$$Sections)
+   .ANY (+RO)
+   .ANY (+XO)
+  }
+  RW_IRAM1 0x20000000 0x0001C000  {  ; RW data
+   .ANY (+RW +ZI)
+  }
+  RW_IRAM2 0x2001C000 0x00003FE0  {  ; 顶部 32 字节保留给 Boot 邮箱
+   .ANY (+RW +ZI)
+  }
+}
