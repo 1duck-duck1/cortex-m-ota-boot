@@ -13,14 +13,18 @@ created: 2026-09-15
 updated: 2026-09-18
 ---
 
-# 01 架构设计
+# 🏗️ 01 架构设计
+
+![](https://img.shields.io/badge/Doc-01_Architecture-2980B9) ![](https://img.shields.io/badge/status-active-brightgreen)
+
+> 📚 **系列导航**：[00 规划](00-project-plan.md) · [01 架构](01-architecture.md) · [02 Git](02-git-and-github.md) · [03 风格](03-code-style.md) · [04 实现](04-boot-implementation.md) · [05 对标](05-bootloader-landscape.md)
 
 > [!NOTE]
 > 本文是项目的技术图纸。功能范围与版本规划见 [00-project-plan.md](00-project-plan.md)。
 
 ---
 
-## 1. 设计铁律
+## ⚖️ 1. 设计铁律
 
 这三条是硬约束，违反即视为架构错误，必须回退重构。
 
@@ -34,7 +38,7 @@ updated: 2026-09-18
 
 ---
 
-## 2. 分层架构
+## 🧱 2. 分层架构
 
 ```mermaid
 flowchart TD
@@ -71,7 +75,7 @@ flowchart TD
 
 ---
 
-## 3. 目录结构
+## 📁 3. 目录结构
 
 仓库根目录只有文档与构建文件，全部源代码归入 `code/`。
 
@@ -141,7 +145,7 @@ flowchart TD
 
 ---
 
-## 4. 芯片层接口：`code/mcu/mcu.h`
+## 🔌 4. 芯片层接口：`code/mcu/mcu.h`
 
 这个头文件从 v0.3.0 起存在（见 R-1）。它**不是为了将来移植到别的芯片**（N-05 已经否掉了这条路），唯一目的是让 `core/` 能在 PC 上被编译和测试：
 
@@ -214,11 +218,11 @@ const boot_mcu_t *boot_mcu_get(void);
 - **mock 必须照抄真实的 sector 尺寸表**，而不是一段等大的假 Flash——否则测不出"跨 sector 边界被擦坏"这类真实缺陷，而元数据双副本恰好就卡在这个边界上。
 - **`erase` 的长度语义按擦除单元处理**：`core` 负责把请求对齐到擦除单元边界，芯片层负责实际擦除。
 - **`app_entry_get/app_stack_get` 而非直接读地址**：向量表取值这一步由芯片层封装，`core` 不假设 Cortex-M4 之外的内核布局。
-- **`boot_flag_*` 抽出为接口**：真板用 BKP 备份寄存器，mock 用一个静态变量，差异在此处吸收。
+- **`boot_flag_*` 抽出为接口**：真板用 `.noinit` SRAM 邮箱，mock 用一个静态变量，差异在此处吸收。
 
 ---
 
-## 5. Flash 分区布局
+## 📦 5. Flash 分区布局
 
 ### 5.1 STM32F407 物理 sector 布局
 
@@ -275,7 +279,7 @@ static const boot_mcu_t s_mcu_f407 = {
 
 ---
 
-## 6. 数据格式
+## 🧬 6. 数据格式
 
 > [!NOTE]
 > 本节结构以 `Keil_OTA_Boot/Boot/boot_types.h` 与 `boot_conf.h` 的实际定义为准（单一事实来源）。v0.1 时期的 64 字节固件头草案已废弃；`reserved` 域在 F-17 打包工具落地时再评估是否扩展。
@@ -363,7 +367,7 @@ typedef struct {
 
 ---
 
-## 7. 升级状态机
+## 🔄 7. 升级状态机
 
 ### 7.1 状态定义与上电行为
 
@@ -421,7 +425,7 @@ Bootloader 无法直接知道 App 是否"成功运行"，采用**启动尝试计
 
 ---
 
-## 8. 平台关键约束
+## ⛓️ 8. 平台关键约束
 
 ### 8.1 F4 擦写期间必须常驻 RAM（★最容易踩的坑）
 
@@ -485,7 +489,7 @@ Flash 擦写不用 HAL 的三条理由：
 
 ---
 
-## 9. 测试策略
+## 🧪 9. 测试策略
 
 ### 9.1 PC 端单元测试（`code/tests/`，优先级最高）
 
@@ -523,7 +527,7 @@ CI 绿勾是从第一天就该养成的习惯。
 
 ---
 
-## 10. 与规划文档的对应关系
+## 🔗 10. 与规划文档的对应关系
 
 | 架构章节 | 对应功能编号 |
 |---|---|

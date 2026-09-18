@@ -10,12 +10,16 @@ created: 2026-09-18
 updated: 2026-09-18
 ---
 
-# 04 Bootloader 实现详解
+# 🛠️ 04 Bootloader 实现详解
+
+![](https://img.shields.io/badge/Doc-04_Implementation-C0392B) ![](https://img.shields.io/badge/version-v0.2.0--dev-blue)
+
+> 📚 **系列导航**：[00 规划](00-project-plan.md) · [01 架构](01-architecture.md) · [02 Git](02-git-and-github.md) · [03 风格](03-code-style.md) · [04 实现](04-boot-implementation.md) · [05 对标](05-bootloader-landscape.md)
 
 > [!NOTE]
 > 本文档记录**当前已交付代码**（v0.1.0 → v0.2.0-dev）的实现决策与难点，与 [01-architecture.md](01-architecture.md) 的分工是：架构文档回答"应该怎么做"，本文档回答"**实际怎么做的、为什么、哪里是妥协**"。代码位于 `Keil_OTA_Boot/`（Keil MDK-ARM + AC5 工程），应用工程为 `Keil_App/`。v0.1.0 的 BKP 通信决策作为历史记录保留在 §1.4。
 
-## 0. 交付范围与代码地图
+## 📋 0. 交付范围与代码地图
 
 v0.2.0-dev 的完成度：跳转闭环 + Flash 分区对称化 + 跨复位通信（SRAM 邮箱）+ 元数据双副本 + 寄存器级 Flash 驱动。**尚未串联**：App 侧 `boot_client` 集成（Keil_App 为 CubeMX 骨架）、UART + YMODEM 接收链路——双向闭环当前不可用，随 v0.2.0 收尾补齐。
 
@@ -38,7 +42,7 @@ v0.2.0-dev 的完成度：跳转闭环 + Flash 分区对称化 + 跨复位通信
 - **固件校验**：仍只做 SP/PC 范围检查；`boot_crc` 模块已就绪但校验链尚未接入（理由见 §2.1）
 - **接收链路**：YMODEM 未动工，`boot_conf.h` 的 `BOOT_PROTOCOL_MAX_DATA`（1024）等宏为它预留
 
-## 1. 跨复位通信：`.noinit` SRAM 邮箱
+## 📮 1. 跨复位通信：`.noinit` SRAM 邮箱
 
 ### 1.1 载体演进与对比
 
@@ -80,7 +84,7 @@ v0.1 的连续启动计数放 BKP，v0.2 起主计数走 `metadata.boot_attempts
 
 v0.1.0 没有 Flash 元数据区，候选只有"零成本复位保持"的载体，BKP 三条理由：备份域只受备份域复位影响（系统复位不清零）；单条 STR 写入零成本；上电初值固定为 0，与魔数比较即可判有效，无需 CRC 协议。使能序列三步（PWR 时钟 → `HAL_PWR_EnableBkUpAccess` → RTC 时钟）漏任何一步都会静默失效，排障记录从略。**迁移决策见 §1.1**——BKP 的逐寄存器无整体校验是硬伤，保留此节仅作决策链完整性的存档。
 
-## 2. 跳转：boot_jump_slot 逐项讲透
+## 🚀 2. 跳转：boot_jump_slot 逐项讲透
 
 ### 2.1 校验：为什么 SP/PC 范围检查就够了
 
@@ -154,7 +158,7 @@ __set_MSP(sp);                  /* 换栈                          */
 | 不关 FPU lazy stacking | 随机位置 HardFault，"能跑几百 ms 然后死" | L83 |
 | 先 `__set_MSP` 后 `__enable_irq` | App 中断全部失灵，HAL_Delay 死等 | L92 在 L95 之前 |
 
-## 3. 计数先于跳转提交：掉电窗口分析
+## ⚡ 3. 计数先于跳转提交：掉电窗口分析
 
 [01-architecture.md](01-architecture.md) §7.4 要求 `boot_attempts++` 必须发生在跳转**之前**。v0.2 起计数提交在 Flash 元数据（`boot_metadata_commit`），不再是 v0.1 那种单条 STR 原子写——提交被展开为"擦除目标副本 → 写入 → 回读校验"三步，用断电点枚举法验证每个窗口：
 
@@ -194,7 +198,7 @@ sequenceDiagram
 
 commit 按 `sequence` 奇偶交替选目标（偶写 A、奇写 B），load 取"有效且 sequence 较大"者。两份副本各占一个独立 sector（2/3），擦除其中一份永远不会波及另一份（F4 擦除单元是整个 sector，这是分区表为元数据划出两个 sector 的原因，见 [01-architecture.md](01-architecture.md) §5.2 推导 1）。于是"擦除目标 → 写入"的任意中间态掉电，另一份完整副本始终可加载。
 
-## 4. App 侧集成约定（boot_client，v0.2.0 待实现）
+## 🤝 4. App 侧集成约定（boot_client，v0.2.0 待实现）
 
 > [!NOTE]
 > v0.1.0 的 `Keil_OTA_Boot/App/`（fake_app + boot_client）已随分区调整移除，应用侧由独立工程 `Keil_App/` 承担。当前 Keil_App 为 CubeMX 骨架（USART1/2 + TIM2 已配置待用），本节是 `boot_client` 重新集成时的设计输入。
@@ -226,7 +230,7 @@ v0.1.0 里该窗口**无任何中断使能**（PRIMASK=1 是②才清的，Fault
 
 `boot_client_confirm()` 的契约：**只在自检通过后调用**。fake_app 无条件立即确认，因为它本来就是验证跳转用的空壳；真实工程应在完成关键外设初始化、业务自检后再确认——confirm 是 App 对"这版固件健康"的签名，乱用会绕过 F-04 回滚保护（见 §3 边界情况）。
 
-## 5. 工程结构：为什么是两个独立 Keil 工程
+## 🧱 5. 工程结构：为什么是两个独立 Keil 工程
 
 ### 5.1 双 target 方案的失败（决策记录）
 
@@ -254,7 +258,7 @@ E:\Keil5\UV4\UV4.exe -b "Keil_App\MDK-ARM\Keil_App.uvprojx"           -j0 -o app
 > [!IMPORTANT]
 > **烧录时两个工程都必须用默认的 Erase Sectors 模式**（Keil Flash Download 默认值）。Erase Sectors 只擦 hex 内容覆盖的 sector：Boot 烧录只擦 sector 0-1，App 烧录只擦 sector 5-7，互不伤害。若误选 Erase Full Chip，后烧的工程会把先烧的整个抹掉。
 
-## 6. 上板验收手册
+## 🧪 6. 上板验收手册
 
 ### 6.1 烧录与预期现象
 
@@ -281,7 +285,7 @@ E:\Keil5\UV4\UV4.exe -b "Keil_App\MDK-ARM\Keil_App.uvprojx"           -j0 -o app
 
 把 `boot_conf.h` 的 `BOOT_MAX_ATTEMPTS` 改为 `0u` 重烧 Boot：Boot 每次上电计数后立即超限，永远拒跳、停在升级模式——验证回滚保护的触发路径，且不需要真的做坏固件。
 
-## 7. 已知妥协清单
+## 🩹 7. 已知妥协清单
 
 | # | 妥协 | 为什么现在可接受 | 计划收紧 |
 |---|---|---|---|

@@ -10,17 +10,21 @@ tags:
   - coding-convention
 status: active
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
-# 03 代码风格与命名规范
+# 🎨 03 代码风格与命名规范
+
+![](https://img.shields.io/badge/Doc-03_Code_Style-F39C12) ![](https://img.shields.io/badge/status-active-brightgreen)
+
+> 📚 **系列导航**：[00 规划](00-project-plan.md) · [01 架构](01-architecture.md) · [02 Git](02-git-and-github.md) · [03 风格](03-code-style.md) · [04 实现](04-boot-implementation.md) · [05 对标](05-bootloader-landscape.md)
 
 > [!NOTE]
 > 本文约束**本项目源码**（`Boot/`、`App/` 等）。CubeMX 生成的 `Core/` 与 ST 的 `Drivers/` 是第三方产物，**保持原样、不重命名**——重新生成时 CubeMX 只认自己的命名。
 
 ---
 
-## 1. 目录组织
+## 📁 1. 目录组织
 
 ```
 Keil_OTA_Boot/
@@ -39,7 +43,7 @@ Keil_OTA_Boot/
 
 **职责边界**：`Core/Src/main.c` 的 USER CODE 区只允许一行 `boot_run()` 调用；所有业务逻辑在 `Boot/`。跳转类代码（改 MSP、改 VTOR）只允许出现在 `Boot/boot_jump.c`。
 
-## 2. 命名规则
+## 🏷️ 2. 命名规则
 
 | 对象 | 规则 | 示例 |
 |---|---|---|
@@ -53,7 +57,7 @@ Keil_OTA_Boot/
 
 **前缀语义**：`boot_` = Bootloader 侧；`app_` / `boot_client_` = App 侧。两侧代码物理隔离（不同 target），前缀用于防止将来共享代码时命名冲突。
 
-## 3. 文件头与函数注释
+## 💬 3. 文件头与函数注释
 
 - 每个新文件带统一头注释：`@file`（文件名）、`@brief`（一句话职责）；复杂模块可加 `@note` 说明关键约束（如"计数必须先于跳转提交"）。
 - 对外函数（头文件声明）写 `@brief` / `@param` / `@retval`；`static` 函数只在逻辑不自明时写一行 `@brief`。
@@ -65,13 +69,13 @@ Keil_OTA_Boot/
 __enable_irq();
 ```
 
-## 4. 排版
+## 📏 4. 排版
 
 - 缩进 4 空格（与 CubeMX 生成代码一致），大括号风格跟随 ST：函数体换行开、语句块同行开。
 - 一行一条语句；指针星号靠近名字：`boot_mcu_t *mcu`。
 - `#include` 顺序：自身头文件 → 本项目头（`boot_*.h`）→ HAL/CMSIS → 标准库。
 
-## 5. 硬性纪律（违反即 bug）
+## 🚨 5. 硬性纪律（违反即 bug）
 
 1. **所有地址、魔数、阈值只在 `boot_conf.h` 定义一次**，其他文件 include 使用——改分区表时只改一处加一处文档。
 2. **CubeMX USER CODE 区外不改**；USER CODE 区内尽量薄（调用，不实现）。
@@ -79,6 +83,6 @@ __enable_irq();
 4. **Bootloader 禁止 `malloc` / 浮点 / 可变长数组**（全程静态分配）。
 5. 修改 `Boot/` 下任何跳转逻辑前，先读 [01-architecture.md](01-architecture.md) §8.2 清单。
 
-## 6. 提交规范
+## 📤 6. 提交规范
 
 沿用约定式提交前缀：`feat:`（新功能）、`fix:`（修复）、`docs:`（文档）、`chore:`（工程配置）、`refactor:`（重构）。提交信息用中文描述，例：`feat(boot): 实现 v0.1.0 双向跳转闭环`。

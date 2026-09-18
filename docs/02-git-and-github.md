@@ -11,10 +11,14 @@ tags:
   - workflow
 status: active
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-09-18
 ---
 
-# 02 Git 与 GitHub 开源指南
+# 🌿 02 Git 与 GitHub 开源指南
+
+![](https://img.shields.io/badge/Doc-02_Git_Guide-27AE60) ![](https://img.shields.io/badge/status-active-brightgreen)
+
+> 📚 **系列导航**：[00 规划](00-project-plan.md) · [01 架构](01-architecture.md) · [02 Git](02-git-and-github.md) · [03 风格](03-code-style.md) · [04 实现](04-boot-implementation.md) · [05 对标](05-bootloader-landscape.md)
 
 > [!NOTE]
 > 面向"没用过 Git"的嵌入式工程师。本文只讲这个项目实际会用到的部分。
@@ -22,7 +26,7 @@ updated: 2026-09-16
 
 ---
 
-## 0. 环境检查结果（实测记录）
+## 🩺 0. 环境检查结果（实测记录）
 
 | 检查项 | 结果 |
 |---|---|
@@ -40,7 +44,7 @@ updated: 2026-09-16
 
 ---
 
-## 1. 安装与初始化配置
+## ⚙️ 1. 安装与初始化配置
 
 ### 1.1 安装 Git
 
@@ -124,7 +128,7 @@ git config --global --list
 
 ---
 
-## 2. Git 与 GitHub 的区别（先把概念理清）
+## 💡 2. Git 与 GitHub 的区别（先把概念理清）
 
 | 名词 | 是什么 |
 |---|---|
@@ -152,7 +156,7 @@ git config --global --list
 
 ---
 
-## 3. 日常够用的 9 个命令
+## ⌨️ 3. 日常够用的 9 个命令
 
 背下这 9 个，覆盖 90% 的场景。
 
@@ -182,7 +186,7 @@ git push                            # 5. 推到 GitHub
 
 ---
 
-## 4. `.gitignore`：必须在第一次提交前建好
+## 🚫 4. `.gitignore`：必须在第一次提交前建好
 
 **这是新手最容易犯的错**：把编译产物、IDE 中间文件、几百 MB 的二进制提交进去，仓库立刻变得又大又乱，而且**历史记录里的垃圾很难彻底清除**。
 
@@ -273,7 +277,7 @@ git commit -m "chore: 移除误提交的构建产物"
 
 ---
 
-## 5. Commit 消息规范
+## 📝 5. Commit 消息规范
 
 用 **Conventional Commits**（开源界事实标准），好处是能自动生成 CHANGELOG，也让历史一目了然。
 
@@ -319,7 +323,7 @@ git commit -m "chore: 移除误提交的构建产物"
 
 ---
 
-## 6. 分支策略（第一次开源用最简的）
+## 🔀 6. 分支策略（第一次开源用最简的）
 
 用 **GitHub Flow**，只有两类分支：
 
@@ -356,7 +360,7 @@ git branch -d feature/ymodem-receiver     # 删掉已合并的分支
 
 ---
 
-## 7. 把仓库推到 GitHub
+## 🚀 7. 把仓库推到 GitHub
 
 ### 7.1 先在本地初始化
 
@@ -418,7 +422,7 @@ git push -u origin main
 
 ---
 
-## 8. GitHub 仓库必备文件清单
+## 📋 8. GitHub 仓库必备文件清单
 
 | 文件 | 作用 | 优先级 |
 |---|---|---|
@@ -482,7 +486,7 @@ jobs:
 
 ---
 
-## 9. 版本发布：Tag 与 Release
+## 🏷️ 9. 版本发布：Tag 与 Release
 
 ### 打 tag（对应 `00-project-plan.md` 里的里程碑）
 
@@ -503,7 +507,7 @@ git push origin v0.1.0
 
 ---
 
-## 10. 常见错误清单
+## 🧯 10. 常见错误清单
 
 | # | 错误 | 后果 | 正确做法 |
 |---|---|---|---|
@@ -541,7 +545,7 @@ git commit -m "..."
 
 ---
 
-## 11. 项目专属建议
+## 🎁 11. 项目专属建议
 
 ### 11.1 目录命名（已调整）
 
@@ -585,7 +589,7 @@ git commit -m "..."
 
 ---
 
-## 12. 初始化执行记录（已完成）
+## 🗒️ 12. 初始化执行记录（已完成）
 
 以下操作已在本机执行完毕，记录备查。换新机器时可按 12.1 重放。
 
@@ -624,7 +628,7 @@ git clone git@github.com:1duck-duck1/cortex-m-ota-boot.git
 
 ---
 
-## 13. 文档写作规范（Obsidian 兼容）
+## 📖 13. 文档写作规范（Obsidian 兼容）
 
 `docs/` 下的文档同时服务两个读者：**本地 Obsidian 知识库** 与 **GitHub 网页**。两者的 Markdown 支持范围并不完全重叠，因此约定只使用**两端都能正确渲染的语法子集**。
 

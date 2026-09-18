@@ -10,12 +10,16 @@ created: 2026-09-18
 updated: 2026-09-18
 ---
 
-# 05 主流 Bootloader 生态对标与裁剪矩阵
+# 🔍 05 主流 Bootloader 生态对标与裁剪矩阵
+
+![](https://img.shields.io/badge/Doc-05_Landscape-16A085) ![](https://img.shields.io/badge/status-active-brightgreen)
+
+> 📚 **系列导航**：[00 规划](00-project-plan.md) · [01 架构](01-architecture.md) · [02 Git](02-git-and-github.md) · [03 风格](03-code-style.md) · [04 实现](04-boot-implementation.md) · [05 对标](05-bootloader-landscape.md)
 
 > [!NOTE]
 > 本文档回答两个问题：**网上主流的纯 MCU Bootloader 都长什么样**；以及本项目如何**有纪律地包揽它们的能力**——目标不是运行时大而全，而是源码仓库全、构建时按需裁剪。路线以 [00-project-plan.md](00-project-plan.md) 为准，本文档只做对标与扩展方向分析。
 
-## 1. 主流实现全景
+## 🌍 1. 主流实现全景
 
 | 项目 | 许可 | 核心特性 | 对本项目的借鉴点 |
 |---|---|---|---|
@@ -31,7 +35,7 @@ updated: 2026-09-18
 > [!TIP]
 > "相比 ROM 自带 Bootloader 多给了什么"——本项目的答案：A/B 双槽掉电安全、App 侧确认/回滚语义、可在 PC 上验证的升级状态机。这三条 ROM Bootloader 都没有，也是本项目存在的理由。
 
-## 2. 六个裁剪维度
+## ✂️ 2. 六个裁剪维度
 
 从上表提炼出可独立裁剪的六个维度，**裁剪 = 编译期关掉 `boot_conf.h` 的开关，而不是删代码**：
 
@@ -44,7 +48,7 @@ updated: 2026-09-18
 | 入口方式 | 上电直跳 / 超时窗口 / 按键 / backdoor 魔数 / App 回跳请求 | App 回跳请求（F-03），超时窗口候选 |
 | 元数据存放 | 无 / BKP 寄存器 / `.noinit` SRAM 邮箱 / Flash 元数据区 | SRAM 邮箱（运行期）+ Flash 元数据（持久期） |
 
-## 3. 仓库架构如何容纳这些选择
+## 🧩 3. 仓库架构如何容纳这些选择
 
 现有分层（见 [01-architecture.md](01-architecture.md)）与六维度的对应关系：
 
@@ -82,7 +86,7 @@ flowchart TB
 - **槽策略 / 回滚** → `boot_meta` + `boot_fsm` 的编译期变体；
 - **入口 / 元数据存放** → `mcu` 层 + `boot_conf.h`。
 
-## 4. 分版本对标路线
+## 🗺️ 4. 分版本对标路线
 
 与 [README 路线图](../README.md#️-路线图) 一一对应，每个版本标注"达到哪个对标项目的哪项能力"：
 
@@ -99,7 +103,7 @@ flowchart TB
 > [!IMPORTANT]
 > "候选"不等于承诺。v1.0 之后的扩展一律**先接口后实现**：transport 层定义好 `transport_if`，每个新传输先提交接口与迁移指南，实现按社区需求排期——避免单人维护被广度拖垮。
 
-## 5. 两条工程纪律
+## 📜 5. 两条工程纪律
 
 1. **配置开关必须是编译期 `#if`**——Bootloader 保持零动态性（无函数指针表按运行时条件切换），这是 [03-code-style.md](03-code-style.md) 既有纪律的延续。MCU 资源有限，"裁剪"发生在链接期：没选中的模块根本不进固件。
 2. **每维度先只交付一种默认实现**——其余选项以"接口 + 占位文档"存在。仓库的"包揽感"来自 §2 的裁剪矩阵与对标文档，而不是未验证的代码堆积；这正对应 [00-project-plan.md](00-project-plan.md) "无'理论可用但没在真板验证'的分支"的定位。
