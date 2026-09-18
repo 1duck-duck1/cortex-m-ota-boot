@@ -10,7 +10,7 @@ tags:
   - flash-layout
 status: active
 created: 2026-09-15
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # 01 架构设计
@@ -196,7 +196,7 @@ typedef struct {
     void     (*jump)(uint32_t entry, uint32_t stack);
     void     (*system_reset)(void);
 
-    /* ---- 升级请求标志（F4 用 BKP 备份寄存器） ---- */
+    /* ---- 升级请求标志（F4 用 .noinit SRAM 邮箱，实现见 04-boot-implementation.md §1） ---- */
     void     (*boot_flag_set)(uint32_t flag);
     uint32_t (*boot_flag_get)(void);
     void     (*boot_flag_clear)(void);
@@ -277,86 +277,89 @@ static const boot_mcu_t s_mcu_f407 = {
 
 ## 6. 数据格式
 
-### 6.1 固件头（64 字节，附加在 `.bin` 之前）
+> [!NOTE]
+> 本节结构以 `Keil_OTA_Boot/Boot/boot_types.h` 与 `boot_conf.h` 的实际定义为准（单一事实来源）。v0.1 时期的 64 字节固件头草案已废弃；`reserved` 域在 F-17 打包工具落地时再评估是否扩展。
+
+### 6.1 固件头（32 字节，附加在镜像之前）
 
 ```c
-#define BOOT_IMAGE_MAGIC      0x544F4F42u   /* 'BOOT' */
-#define BOOT_IMAGE_HEADER_VER 1u
+#define BOOT_IMAGE_MAGIC      0x494D4742u   /* 小端字节序：'BGMI' */
+#define BOOT_IMAGE_HEADER_VERSION  1u
+#define BOOT_HARDWARE_ID       0xF4070001u
 
 typedef struct {
-    uint32_t magic;          /* BOOT_IMAGE_MAGIC */
-    uint16_t header_ver;     /* 头部格式版本，用于将来扩展 */
-    uint16_t hw_id;          /* 目标硬件标识，防止烧错板子 */
-    uint32_t fw_version;     /* 固件版本，单调递增（供 X-02 防回滚使用） */
-    uint32_t image_size;     /* 载荷大小，不含头部 */
-    uint32_t load_offset;    /* 相对槽起始的加载偏移，通常为 0 */
-    uint32_t payload_crc32;  /* 载荷 CRC32 */
-    uint32_t header_crc32;   /* 本结构前 28 字节的 CRC32 */
-    uint8_t  reserved[24];   /* 预留：SHA256 / 签名域（X-01） */
-    uint8_t  pad[4];         /* 补齐到 64 字节 */
+    uint32_t magic;            /* BOOT_IMAGE_MAGIC */
+    uint32_t header_version;   /* 头部格式版本 */
+    uint32_t header_size;      /* 本结构大小，sizeof(boot_image_header_t) */
+    uint32_t hardware_id;      /* 目标硬件标识，防烧错板子 */
+    uint32_t firmware_version; /* 固件版本，单调递增（供 X-02 防回滚使用） */
+    uint32_t image_size;      /* 载荷大小，不含头部 */
+    uint32_t load_address;    /* 载荷目标地址（相对槽基址的绝对地址） */
+    uint32_t image_crc32;     /* 载荷 CRC32 */
 } boot_image_header_t;
 ```
 
-**校验顺序（任一失败即拒绝）**：
+**校验顺序（任一失败即拒绝，F-08/F-09 随传输链路接入）**：
 1. `magic == BOOT_IMAGE_MAGIC`
-2. `header_ver` 在支持范围内
-3. `header_crc32` 校验通过
-4. `hw_id` 与当前硬件匹配
-5. `image_size <= 目标槽可用容量`
-6. `payload_crc32` 与实收载荷匹配
-7. （v0.4.0 起）签名验证
+2. `header_version` 在支持范围内，`header_size` 与 sizeof 一致
+3. `hardware_id` 与当前硬件匹配
+4. `image_size <= 目标槽可用容量`（`BOOT_MAX_IMAGE_SIZE`）
+5. `image_crc32` 与实收载荷匹配
+6. （v0.4.0 起）签名验证
 
-**为什么固件头放在最前面**：Bootloader 只需读前 64 字节就能判断固件是否合法，无需扫描整个镜像。
+**为什么固件头放在最前面**：Bootloader 只需读前 32 字节就能判断固件是否合法，无需扫描整个镜像。
 
 ### 6.2 元数据（双副本，原子更新）
 
 ```c
-#define BOOT_META_MAGIC  0x4154454Du   /* 'META' */
+#define BOOT_METADATA_MAGIC  0x4154454Du   /* 小端字节序：'META' */
+#define BOOT_METADATA_VERSION 1u
 
-/* 单个槽的状态 */
-typedef enum {
-    SLOT_INVALID = 0,      /* 无有效固件 */
-    SLOT_VALID,            /* 有有效固件，可作为回滚目标 */
-    SLOT_PENDING_TEST,     /* 已切到此槽，等待 App 确认 */
-} boot_slot_state_t;
+/* 单个槽的记录 */
+typedef struct {
+    uint32_t state;          /* boot_image_state_t：EMPTY/VALID/PENDING/CONFIRMED/INVALID */
+    uint32_t version;
+    uint32_t image_size;
+    uint32_t image_crc32;
+} boot_slot_record_t;
 
 typedef struct {
-    uint32_t          version;
-    uint32_t          size;         /* 该槽固件实际大小 */
-    uint32_t          crc32;
-    uint8_t           state;
-    uint8_t           reserved[3];
-} boot_slot_info_t;
-
-typedef struct {
-    uint32_t          magic;        /* BOOT_META_MAGIC */
-    uint32_t          seq;          /* 单调递增序号，越大越新 */
-    uint8_t           active_slot;  /* 0 = A, 1 = B */
-    uint8_t           boot_attempts;/* 当前激活槽已尝试启动次数 */
-    uint16_t          reserved;
-    boot_slot_info_t  slot[2];      /* Slot A / Slot B 信息 */
-    uint32_t          crc32;        /* 本结构前 N 字节的 CRC32 */
-} boot_meta_t;
+    uint32_t          magic;          /* BOOT_METADATA_MAGIC */
+    uint32_t          format_version;
+    uint32_t          record_size;    /* sizeof(boot_metadata_t)，自校验 */
+    uint32_t          sequence;       /* 单调递增，越大越新；奇偶决定写入哪份副本 */
+    uint32_t          active_slot;    /* 当前激活槽（boot_slot_id_t） */
+    uint32_t          confirmed_slot; /* 上一次确认过的槽，回滚目标 */
+    uint32_t          pending_slot;   /* 待验证的切换目标（NONE = 无切换进行中） */
+    uint32_t          boot_attempts; /* 激活槽连续启动计数（F-04） */
+    boot_slot_record_t slot_a;
+    boot_slot_record_t slot_b;
+    uint32_t          record_crc32;   /* 本结构 record_crc32 之前字节的 CRC32 */
+} boot_metadata_t;
 ```
 
-副本 0 落在 `meta.start`（sector 2），副本 1 落在 `meta.start + 16 KB`（sector 3）——**各自独占一个 sector，这是分区布局为它让出 32 KB 的原因**。
+三槽字段（`active / confirmed / pending`）比"单 active + 槽状态"表达力更强：**回滚目标显式化**（confirmed 不随切换变）、**切换进行中**可被任何一次复位后的 load 识别（pending ≠ NONE → 按新槽继续尝试或计数超限回滚）。
 
-**原子更新算法**（`code/core/boot_meta.c` 实现，与硬件无关）：
+副本 A 落在 sector 2（`BOOT_META_A_ADDR`），副本 B 落在 sector 3（`BOOT_META_B_ADDR`）——**各自独占一个 sector，这是分区布局为它让出 32 KB 的原因**。
+
+**原子更新算法**（`Boot/boot_metadata.c` 已实现）：
 
 ```
-写记录(新 meta):
-  1. 找到两份副本中 seq 较小的那一份（即"旧的"）
-  2. 擦除该副本所在的整个 sector
-  3. 写入完整的新记录，其 seq = 当前最大 seq + 1
-  4. 回读校验 CRC
+写记录(commit):
+  1. 补齐 magic / format_version / record_size，重算 record_crc32
+  2. 按 sequence 奇偶选目标副本（偶数写 A，奇数写 B）
+  3. 擦除目标副本所在 sector
+  4. 写入完整新记录（sequence 已由调用方递增）
+  5. 回读并用同样的校验规则验证
 
-读记录(上电时):
-  1. 逐份检查 magic 与 CRC
-  2. 取所有有效副本中 seq 最大的一份
-  3. 若两份都无效（极端情况）→ 视为出厂状态，槽状态全置 SLOT_INVALID
+读记录(load):
+  1. 逐份检查 magic / format_version / record_size / record_crc32
+  2. 两份均有效时取 sequence 较大者；仅一份有效取该份
+  3. 两份都无效（出厂或极端损坏）→ 视为出厂状态：
+     active=A, confirmed=A, pending=NONE, slot_a=VALID, sequence=0
 ```
 
-**容错边界**：擦除/写入过程中掉电，只会损坏"旧的那份"，另一份位于**另一个 sector**、不受擦除影响，始终有效。这是掉电安全的基础。
+**容错边界**：擦除/写入过程中掉电，只会损坏"目标那份"，另一份位于**另一个 sector**、不受擦除影响，始终有效。这是掉电安全的基础（逐断电点分析见 [04-boot-implementation.md](04-boot-implementation.md) §3）。
 
 ---
 
@@ -372,6 +375,9 @@ typedef struct {
 | `PENDING_TEST` | 已切到新槽，等待 App 确认 | `boot_attempts++`；若 `> MAX_ATTEMPTS(3)` → 回滚到旧槽；否则跳转 App |
 | `CONFIRMED` | 新固件已确认可用 | 将新槽标记 `SLOT_VALID`，旧槽保留为回滚目标，跳转 App |
 | `ROLLBACK` | 新固件启动失败，切回旧槽 | 恢复 `active_slot` 为旧槽，状态置 `CONFIRMED`，跳转旧 App；若无有效旧槽则停在 Bootloader |
+
+> [!NOTE]
+> **v0.2.0 实现现状**：拒跳（attempts 超限）后 `boot_metadata_rollback` 只完成"元数据回滚"（active 切回 confirmed、计数清零），随后停留 WAIT_UPDATE 等 UART 通道，**不自动跳转旧槽**——"回滚后跳转"随 v0.3.0 状态机完善接通。当前 `confirmed_slot` 无有效旧槽时同样停留 Bootloader，安全侧一致。
 
 ### 7.2 状态转换图
 
@@ -410,6 +416,8 @@ Bootloader 无法直接知道 App 是否"成功运行"，采用**启动尝试计
 4. 若 App 反复崩溃/看门狗复位，`boot_attempts` 会累积到超过 `MAX_ATTEMPTS`（默认 3）→ 触发回滚。
 
 **注意**：`boot_attempts++` 必须在跳转 App **之前**提交，否则 App 崩溃后计数不会累积。
+
+**confirm 的消费同样必须落盘**：无论是否存在进行中的切换（pending），消费确认标志时都要把"计数清零"提交进元数据——只改 RAM 不提交的话，下次上电会从元数据读回旧计数继续累积，最终误触回滚；App 每次启动都确认而元数据本就干净（pending==NONE 且计数==0）时才可跳过提交，避免无谓擦写。
 
 ---
 
@@ -471,6 +479,9 @@ Flash 擦写不用 HAL 的三条理由：
 3. **HAL 的超时机制在擦写期间失效**：`FLASH_WaitForLastOperation` 的超时依赖 `HAL_GetTick()`，而擦写期间全局关中断、tick 冻结——Flash 出错时超时永远不会触发，变成无界死循环。寄存器级实现用有界循环计数轮询 BSY，天然免疫。
 
 反过来，N-05（单芯片专用）也消解了"寄存器代码难维护"的顾虑：F4 的擦写序列（KEYR 解锁 → SER/SNB → STRT → BSY 轮询 → 锁定）十年未变，这份驱动是一次性投入。
+
+> [!NOTE]
+> **实现现状**：`Boot/boot_flash.c` 已按本节落地——寄存器级擦写 + 有界循环轮询 BSY（`BOOT_FLASH_TIMEOUT_LOOP`，约 5 s），不依赖 SysTick 超时。RAMFUNC（§8.1）暂缓：Bootloader 单任务环境下"Flash 中执行、擦写期间取指 stall"可接受，v0.3 引入中断驱动传输时再迁移（决策记录见 [04-boot-implementation.md](04-boot-implementation.md) §7 妥协 #5）。
 
 ---
 

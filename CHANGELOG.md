@@ -11,12 +11,18 @@
 
 - `Keil_App/` 独立应用工程（CubeMX 骨架：USART1/2 + TIM2），链接基址 Slot A `0x08020000`
 - Boot 与 App 两侧显式链接脚本（scatter）：Boot 限 32 KB、App 限 Slot A 384 KB，SRAM2 顶部 32 字节邮箱在两侧均由链接器保留
+- Boot 元数据模块 `boot_metadata`（双副本 load/commit、mark_pending/confirm/rollback）、CRC 模块 `boot_crc`、公共类型 `boot_types`、Flash 驱动 `boot_flash`
 
 ### Changed
 
 - Flash 分区调整为对称双槽：Slot A/B 各 384 KB（sector 5-7 / 8-10）；sector 4 划为参数数据区（NVS 预留），sector 11 整块保留（原 448/448、保留区与 Slot B 共用 sector 11 的布局废弃）
 - 跨复位通信由 RTC 备份寄存器迁移至 `.noinit` SRAM 邮箱（`0x2001FFE0`，magic + CRC32 保护），Boot 不再使能 PWR/RTC
-- 文档同步：架构设计 §5 分区表、实现详解工程表与验收手册（BKP 观察表改为邮箱观察）、README
+- Boot Flash 擦写由 HAL 改为寄存器级 + 有界轮询（架构 §8.4 兑现：消除 HAL 超时依赖 SysTick、擦写期间 tick 冻结导致的无界死循环风险）
+- 文档同步：架构设计 §6 数据格式以 `boot_types.h` 实际定义为准重写、§7.4 补 confirm 消费落盘语义；实现详解 §1/§3 重写为 SRAM 邮箱与元数据双副本视角、§7 妥协清单扩充；README 功能表 F-10/F-12 状态更新
+
+### Fixed
+
+- App 确认消费时未将元数据启动计数清零：无进行中切换（pending==NONE）时计数持续累积，反复确认最终会误触发回滚；现确认消费无条件落盘"计数清零"，仅元数据本就干净时跳过提交
 
 ### Removed
 

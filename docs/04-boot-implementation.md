@@ -1,8 +1,8 @@
 ---
-title: 04 v0.1.0 Bootloader 实现详解
+title: 04 Bootloader 实现详解
 aliases:
   - 实现详解
-  - v0.1.0 实现记录
+  - 实现记录
 tags:
   - project/implementation
 status: active
@@ -10,84 +10,75 @@ created: 2026-09-18
 updated: 2026-09-18
 ---
 
-# 04 v0.1.0 Bootloader 实现详解
+# 04 Bootloader 实现详解
 
 > [!NOTE]
-> 本文档记录 **v0.1.0 已交付代码**的实现决策与难点，与 [01-architecture.md](01-architecture.md) 的分工是：架构文档回答"应该怎么做"，本文档回答"**实际怎么做的、为什么、哪里是妥协**"。代码位于 `Keil_OTA_Boot/`（Keil MDK-ARM + AC5 工程）。
+> 本文档记录**当前已交付代码**（v0.1.0 → v0.2.0-dev）的实现决策与难点，与 [01-architecture.md](01-architecture.md) 的分工是：架构文档回答"应该怎么做"，本文档回答"**实际怎么做的、为什么、哪里是妥协**"。代码位于 `Keil_OTA_Boot/`（Keil MDK-ARM + AC5 工程），应用工程为 `Keil_App/`。v0.1.0 的 BKP 通信决策作为历史记录保留在 §1.4。
 
 ## 0. 交付范围与代码地图
 
-v0.1.0 的验收标准（见 [00-project-plan.md](00-project-plan.md)）：**STM32F407VGT6 真板上 Boot↔App 双向跳转成功**。只做跳转闭环，不含 Flash 擦写、传输协议、元数据区——那是 v0.2.0 起的事。
+v0.2.0-dev 的完成度：跳转闭环 + Flash 分区对称化 + 跨复位通信（SRAM 邮箱）+ 元数据双副本 + 寄存器级 Flash 驱动。**尚未串联**：App 侧 `boot_client` 集成（Keil_App 为 CubeMX 骨架）、UART + YMODEM 接收链路——双向闭环当前不可用，随 v0.2.0 收尾补齐。
 
 | 文件 | 职责 | 对应功能 |
 |---|---|---|
-| `Boot/boot_conf.h` | 分区表 / BKP 分配 / 魔数 / 阈值，单一事实来源 | — |
-| `Boot/boot_flag.c/.h` | RTC 备份寄存器读写封装 | F-03 / F-04 / F-15 的数据层 |
+| `Boot/boot_conf.h` | 分区表 / 邮箱与元数据格式 / 魔数 / 阈值，单一事实来源 | — |
+| `Boot/boot_types.h` | 公共类型：状态码 / 槽 ID / 镜像头 / 元数据结构 | — |
+| `Boot/boot_flag.c/.h` | `.noinit` SRAM 邮箱跨复位通信（magic + CRC32 双重校验） | F-03 / F-15 数据层 |
+| `Boot/boot_crc.c/.h` | CRC32（元数据记录与将来固件头校验共用） | F-09 数据层 |
+| `Boot/boot_flash.c/.h` | 寄存器级 Flash 擦写（有界轮询）+ 写范围守卫 | F-16 部分 |
+| `Boot/boot_metadata.c/.h` | 元数据双副本：load / commit / 切换 / 确认 / 回滚 | F-10 / F-12 / F-14 数据层 |
 | `Boot/boot_jump.c/.h` | 向量表校验 + 环境剥离 + 跳转 | F-01（简化版）/ F-02 |
-| `Boot/boot_main.c/.h` | 主流程：确认消费 → 请求消费 → 计数保护 → 跳转 | F-03 / F-04 |
-| `App/app_main.c` | fake_app：验证跳转闭环的最小应用 | — |
-| `App/boot_client.c/.h` | 应用侧接口：init / confirm / request_update / heartbeat | F-03 / F-15 |
-| `Core/Src/main.c` | CubeMX 生成，USER CODE 区接入 `boot_run()` | — |
+| `Boot/boot_main.c/.h` | 8 状态状态机主流程 | F-03 / F-04 / F-11 |
+| `Keil_OTA_Boot/Core/Src/main.c` | CubeMX 生成，USER CODE 区接入 `boot_run()` | — |
+| `Keil_App/Core/Src/main.c` | 应用工程骨架（USART1/2 + TIM2 已配置、全部待启动） | `boot_client` 集成待办 |
 
-三个刻意不做的事（对应架构文档铁律 R-1"允许写死、允许代码丑"）：
+三个此刻还没做的事（对应架构文档铁律 R-1"允许写死、允许代码丑"）：
 
-- **输出通道**：不引入 RTT/UART，验证靠 Keil 调试断点 + BKP 寄存器观察
-- **固件校验**：只做 SP/PC 范围检查，不做 CRC/签名（理由见 §2.1）
-- **A/B 切换**：单槽 A 写死，状态机不留接口
+- **输出通道**：USART1/2 已由 CubeMX 配好（115200，TX/RX），但无任何收发逻辑；验证仍靠 Keil 调试断点 + SRAM 邮箱观察
+- **固件校验**：仍只做 SP/PC 范围检查；`boot_crc` 模块已就绪但校验链尚未接入（理由见 §2.1）
+- **接收链路**：YMODEM 未动工，`boot_conf.h` 的 `BOOT_PROTOCOL_MAX_DATA`（1024）等宏为它预留
 
-## 1. 跨复位通信：为什么用 RTC 备份寄存器
+## 1. 跨复位通信：`.noinit` SRAM 邮箱
 
-### 1.1 三种载体的对比
+### 1.1 载体演进与对比
 
-Boot 与 App 之间需要一条"复位后还在"的通信信道（请求升级 / 确认 / 计数）。候选：
+Boot 与 App 之间需要一条"软件复位后还在"的通信信道（请求升级 / 确认 / 计数）。候选载体对比：
 
-| 载体 | 复位保持 | 写代价 | 掉电保持 | 结论 |
-|---|:---:|---|:---:|---|
-| 普通 SRAM | ✗ 随机值 | — | ✗ | 不可用 |
-| No-Init RAM（`.noinit` 段） | ✓ | 零 | ✗ | 可用，但**无法区分"上电初始随机值"与"App 写入值"**，需要额外标记 |
-| Flash 元数据区 | ✓ | 擦写周期 + 掉电安全设计 | ✓ | v0.3.0 的正解，v0.1.0 引入则过早 |
-| **RTC 备份寄存器（BKP）** | ✓ | 单条寄存器写 | ⚠️ 仅接 VBAT 时 | **v0.1.0 选择** |
+| 载体 | 软件复位保持 | 掉电保持 | 容量 | 完整性校验 | 结论 |
+|---|:---:|:---:|---|---|---|
+| 普通 SRAM（.data/.bss） | ✗ 启动代码清零/重拷 | ✗ | — | — | 不可用 |
+| **`.noinit` SRAM 邮箱** | ✓ 链接器不触碰 | ✗ | 32 字节 | magic + CRC32 | **v0.2.0 选择** |
+| RTC 备份寄存器（BKP） | ✓ | ⚠️ 仅接 VBAT | 20×4 字节 | 仅逐寄存器魔数 | v0.1.0 曾用，已弃（§1.4） |
+| Flash 元数据区 | ✓ | ✓ | 32 KB | 记录级 CRC32 | 持久状态的正解（v0.2.0 已引入，见 §3） |
 
-选 BKP 的三条理由：
+从 BKP 迁到 SRAM 邮箱的动机：**BKP 逐寄存器独立、没有整体完整性语义**——写者崩溃在"写完字段、还没写完魔数"的中间态时，读方无法察觉；且 20 个寄存器的容量上限决定了协议扩展空间。SRAM 邮箱把 8 个 32 位字段打包为一条记录，用 magic + CRC32 做**整箱校验**，写者崩溃的任何中间态都会导致 CRC 失配 → 整箱作废重置——失败模式是"丢失一次请求、回到安全态"，而不是"执行一个半成品指令"。
 
-1. **天然复位保持**：F407 的 20 个 32 位备份寄存器位于备份域，只受备份域复位影响，系统复位（含 `NVIC_SystemReset()`、看门狗、掉电重启）都不清零；
-2. **写入零成本**：单条 STR 指令，无需擦写序列、无需 RAMFUNC 约束（对比 [01-architecture.md](01-architecture.md) §8.1）；
-3. **魔数即校验**：上电初值固定为 0，与 `'REQB'`/`'CONF'` 魔数比较即可判断有效性，不需要 No-Init RAM 那套"先写标记再写数据"的协议。
+### 1.2 邮箱结构（`boot_flag.c`）
 
-> [!CAUTION]
-> 备份域的掉电保持依赖 VBAT 引脚供电。开发板 VBAT 悬空或接了电池，行为不同：主电源断电后 BKP 内容可能丢失。本项目只要求**复位保持**（不断电），所以无影响；但排查问题时要知道这一层。
+位于 SRAM 末尾 32 字节 `0x2001FFE0`（`BOOT_MAILBOX_ADDR`），两侧链接脚本（`Keil_OTA_Boot.sct` / `Keil_App.sct`）把 RW_IRAM2 收窄到 `0x3FE0`，**链接器保证不会把这 32 字节分配给普通变量**：
 
-### 1.2 三步使能序列——每一步漏掉的症状
+| 字段 | 偏移 | 用途 |
+|---|:---:|---|
+| `magic` | +0 | `'BOOT'` = 0x424F4F54，整箱有效的前提 |
+| `request` | +4 | App 写 `'REQB'` 请求进入 Bootloader（F-03） |
+| `confirmation` | +8 | App 写 `'CONF'` 确认固件健康（F-15） |
+| `attempts` | +12 | 连续启动计数（v0.1 兼容字段，v0.2 主计数已迁元数据，见 §1.3） |
+| `heartbeat` | +16 | App 心跳计数，仅调试观察 |
+| `reserved[2]` | +20/+24 | 对齐预留 |
+| `crc32` | +28 | 前 28 字节的 CRC32 |
 
-`boot_flag_init()` 的使能序列（顺序不可换）：
+写入协议（`boot_flag_*_set`）：先写字段，再调 `boot_mailbox_commit()` 重算 CRC——**顺序不可换**。读方（`boot_flag_init`）在 magic 与 CRC 双双匹配时保留邮箱内容，否则整箱清零重建。
 
-```c
-__HAL_RCC_PWR_CLK_ENABLE();     /* ① PWR 外设时钟        */
-HAL_PWR_EnableBkUpAccess();     /* ② PWR->CR.DBP = 1     */
-__HAL_RCC_RTC_ENABLE();        /* ③ RTC APB1 接口时钟   */
-```
+> [!IMPORTANT]
+> **掉电边界**：邮箱只在软件复位（`NVIC_SystemReset()`）后存活，掉电后是随机值——magic/CRC 双重校验保证随机值撞上合法魔数且 CRC 通过的概率是 2⁻⁶⁴ 量级，实际不可能，所以掉电后必然走"作废重建"路径。这是**特性而非缺陷**：掉电不该计为"启动失败"，attempts 类状态本就该断电归零（v0.2 已进一步把主计数搬进元数据，原因见 §3）。
 
-| 漏掉 | 症状 | 原因 |
-|---|---|---|
-| ① | ② 写不进去：DBP 位操作被忽略 | PWR 寄存器本身无时钟 |
-| ② | 写 BKPxR 静默丢弃，读回恒 0 | 备份域写保护（DBP）未解除 |
-| ③ | 读写 BKPxR 读到 0 / 总线错误 | BKPxR 挂在 RTC 模块接口下，无 RTCEN 则访问无效 |
+### 1.3 双计数载体：为什么 attempts 的主战场在元数据
 
-两个容易混淆的点：
+v0.1 的连续启动计数放 BKP，v0.2 起主计数走 `metadata.boot_attempts`（Flash 双副本，§3），邮箱的 `attempts` 字段与 `boot_flag_attempts_*` API 保留但当前无人调用。迁移原因：计数必须**先于跳转提交**（架构文档 §7.4），而"提交"要对掉电也成立——SRAM 邮箱掉电即失，若计数只在邮箱，一次掉电就绕过 F-04 回滚保护。Flash 元数据的双副本写入天然满足"掉电任意时刻至少一份有效"（§3.2）。
 
-- **BKPxR 不受 `RTC->WPR` 影响**。RTC 核心寄存器（计数器、闹钟等）有独立的 WPR 写保护序列，但备份寄存器只有 DBP 一道锁，解锁后直接读写；
-- CMSIS 头文件里 F407 的备份寄存器是 **`RTC->BKP0R` … `RTC->BKP19R`** 逐个定义（部分老教程写 `BKPR[]` 数组，那是 F1 的访问方式，在 F4 上编译不过）。
+### 1.4 历史：v0.1.0 为什么曾选 BKP
 
-### 1.3 寄存器分配与魔数设计
-
-| 寄存器 | 用途 | 值域 |
-|---|---|---|
-| `BKP0R` | App 请求进入 Bootloader | 魔数 `'REQB'` = 0x52455142 |
-| `BKP1R` | 连续启动尝试计数 | 0 ~ BOOT_MAX_ATTEMPTS |
-| `BKP2R` | App 确认新固件健康 | 魔数 `'CONF'` = 0x434F4E46 |
-| `BKP3R` | App 心跳计数 | 自由递增，仅供调试观察 |
-
-魔数用 4 字符 ASCII 的好处：调试器 Watch 窗口里 hex 视图直接可读（`0x52455142` ↔ "REQB"），且天然远离 0 / 1 / 随机上电值的常见取值，防误判。
+v0.1.0 没有 Flash 元数据区，候选只有"零成本复位保持"的载体，BKP 三条理由：备份域只受备份域复位影响（系统复位不清零）；单条 STR 写入零成本；上电初值固定为 0，与魔数比较即可判有效，无需 CRC 协议。使能序列三步（PWR 时钟 → `HAL_PWR_EnableBkUpAccess` → RTC 时钟）漏任何一步都会静默失效，排障记录从略。**迁移决策见 §1.1**——BKP 的逐寄存器无整体校验是硬伤，保留此节仅作决策链完整性的存档。
 
 ## 2. 跳转：boot_jump_slot 逐项讲透
 
@@ -114,18 +105,21 @@ v0.1.0 处在第一档，**不是偷懒而是逻辑必然**：当前固件由调
 
 ### 2.2 剥离清单：每一步不做的后果
 
-对照 [01-architecture.md](01-architecture.md) §8.2 的清单，逐项给出"为什么"：
+对照 [01-architecture.md](01-architecture.md) §8.2 的清单，逐项给出"为什么"（行号对应 `boot_jump.c`）：
 
 | # | 动作 | 代码 | 不做的后果 |
 |---|---|---|---|
-| 1 | `__disable_irq()` | `boot_jump.c` L50 | 剥离过程中断进来用旧向量表 + 快要换的旧栈 |
-| 2 | 停 SysTick（HAL + 寄存器双保险） | L53-54 | App 重新 `HAL_Init()` 前每 1ms 一次中断打到旧向量表 |
-| 3 | 清 NVIC **ICER + ICPR** | L57-61 | ICER 只关使能；**ICPR 不清则 pending 位还在**，App 一开中断立刻补枪 |
-| 4 | 清 `FPU->FPCCR` 的 ASPEN/LSPEN | L64 | 见下方专述，网上教程最高频遗漏 |
-| 5 | `__DSB()` `__ISB()` | L65-66 | 保证 3/4 的写真落地、指令流水线真冲刷 |
-| 6 | `SCB->VTOR = slot_base` | L69 | 异常继续进 Boot 的向量表（Boot 已"不在"了） |
-| 7 | `__enable_irq()`（**在换 MSP 之前**） | L73 | 见下方专述 |
-| 8 | `__set_MSP()` + 函数指针跳转 | L76-77 | — |
+| 1 | `__disable_irq()` | L69 | 剥离过程中断进来用旧向量表 + 快要换的旧栈 |
+| 2 | 停 SysTick（HAL + 寄存器双保险） | L72-73 | App 重新 `HAL_Init()` 前每 1ms 一次中断打到旧向量表 |
+| 3 | 清 NVIC **ICER + ICPR** | L76-80 | ICER 只关使能；**ICPR 不清则 pending 位还在**，App 一开中断立刻补枪 |
+| 4 | 清 `FPU->FPCCR` 的 ASPEN/LSPEN | L83 | 见下方专述，网上教程最高频遗漏 |
+| 5 | `__DSB()` `__ISB()` | L84-85 | 保证 3/4 的写真落地、指令流水线真冲刷 |
+| 6 | `SCB->VTOR = slot_base` | L88 | 异常继续进 Boot 的向量表（Boot 已"不在"了） |
+| 7 | `__enable_irq()`（**在换 MSP 之前**） | L92 | 见下方专述 |
+| 8 | `__set_MSP()` + 函数指针跳转 | L95-96 | — |
+
+> [!WARNING]
+> **剥离清单当前不含"停 TIM2"**——两侧 TIM2 均已由 CubeMX 初始化（500 Hz 预分频）但尚未启动、未开中断，此刻无风险。v0.2.0 接入升级超时（TIM2 中断）后，**必须在此清单补"停 TIM2 + 清其 NVIC pending"**，否则跳转后 TIM2 中断打进 App 向量表，App 未定义 `TIM2_IRQHandler` 即跑飞。这是接入传输层时最容易漏的一步。
 
 **第 3 步的坑**：`NVIC->ICER[i] = 0xFFFFFFFF` 只是"关闸"，`ICPR` 里挂着的 pending 请求还在排队。App 启动后第一次 `__enable_irq()`（或它使能任何中断）时，这些积压请求会立刻触发——此时 VTOR 已指向 App，但 App 的外设初始化还没做，处理函数面对的是不存在的硬件状态。清 ICPR 是唯一正确姿势。
 
@@ -148,7 +142,7 @@ __set_MSP(sp);                  /* 换栈                          */
 2. `__set_MSP()` 内联为单条 `MSR`，其后到跳转之间没有任何栈访问。
 
 > [!WARNING]
-> 这是**靠编译器行为**的省事写法。换编译器（AC6 / GCC / IAR）或提高优化等级时，编译器有权在 `MSR` 之后插入栈操作（例如函数序言的压栈被延迟调度），届时将出现无法调试的间歇性崩溃。**迁移工具链时此处必须改回架构文档规定的汇编版本**，这是本仓库的已知技术债，v0.2.0 随 UART 移植一并偿还。
+> 这是**靠编译器行为**的省事写法。换编译器（AC6 / GCC / IAR）或提高优化等级时，编译器有权在 `MSR` 之后插入栈操作（例如函数序言的压栈被延迟调度），届时将出现无法调试的间歇性崩溃。**迁移工具链时此处必须改回架构文档规定的汇编版本**，这是本仓库的已知技术债（§7 妥协 #1）。
 
 ### 2.4 网上教程三处高频错误对照
 
@@ -156,48 +150,64 @@ __set_MSP(sp);                  /* 换栈                          */
 
 | 高频错误 | 症状 | 本实现 |
 |---|---|---|
-| 只清 ICER 不清 ICPR | App 开中断瞬间被积压请求打断 | L60 双写 |
-| 不关 FPU lazy stacking | 随机位置 HardFault，"能跑几百 ms 然后死" | L64 |
-| 先 `__set_MSP` 后 `__enable_irq` | App 中断全部失灵，HAL_Delay 死等 | L73 在 L76 之前 |
+| 只清 ICER 不清 ICPR | App 开中断瞬间被积压请求打断 | L76-80 双写 |
+| 不关 FPU lazy stacking | 随机位置 HardFault，"能跑几百 ms 然后死" | L83 |
+| 先 `__set_MSP` 后 `__enable_irq` | App 中断全部失灵，HAL_Delay 死等 | L92 在 L95 之前 |
 
 ## 3. 计数先于跳转提交：掉电窗口分析
 
-[01-architecture.md](01-architecture.md) §7.4 要求 `boot_attempts++` 必须发生在跳转**之前**。用断电点枚举法验证 v0.1.0 的流程（BKP 写入是单条 STR，本身原子）：
+[01-architecture.md](01-architecture.md) §7.4 要求 `boot_attempts++` 必须发生在跳转**之前**。v0.2 起计数提交在 Flash 元数据（`boot_metadata_commit`），不再是 v0.1 那种单条 STR 原子写——提交被展开为"擦除目标副本 → 写入 → 回读校验"三步，用断电点枚举法验证每个窗口：
 
 ```mermaid
 sequenceDiagram
     participant B as Boot
-    participant R as BKP1R 计数
-    participant A as App(Slot A)
+    participant F as Flash 元数据<br/>(副本 A / 副本 B)
+    participant A as App(激活槽)
 
-    B->>R: attempts = 0（读到 CONF 时）
-    B->>R: attempts++
-    Note over B,A: 断电点 P1 → 复位后计数=1，继续尝试 ✓
+    B->>F: load：取有效且 sequence 较大的副本
+    B->>B: attempts++ / sequence++
+    B->>F: commit（按 sequence 奇偶交替选目标副本）
+    Note over B,F: 断电点 P1 → 见下表
     B->>A: 跳转
-    Note over A: 断电点 P2 → 复位后计数=1，继续尝试 ✓
+    Note over A: 断电点 P2 → 复位后 attempts 已落盘，继续累积 ✓
     A->>A: 自检 + boot_client_confirm()
-    A->>R: BKP2R = 'CONF'
-    Note over A: 断电点 P3 → 下次上电 CONF 在，清计数 ✓
+    A->>B: 邮箱 confirmation = 'CONF'（复位）
+    B->>F: confirm 消费：attempts 清零 + 槽转正，提交
+    Note over A: 断电点 P3 → CONF 在邮箱里，下次上电仍会消费 ✓
 ```
 
-| 断电点 | 复位后状态 | 结果 |
-|---|---|---|
-| P1（计数后、跳转前） | 计数=1，无 CONF | 再试一次 |
-| P2（App 跑起来但未确认） | 计数=1，无 CONF | 再试一次 |
-| P3（已确认） | CONF 在 | 计数清零 |
-| App 反复崩溃（每个周期 P2） | 计数累积到 3 | 拒跳，停留升级模式 |
+| 断电点 | 位置 | 复位后状态 | 结果 |
+|---|---|---|---|
+| P1a | commit 擦除目标副本后、写入前 | 另一副本（sequence 旧 1）有效 | **本次 ++ 丢失**，计数停在旧值——偏松方向：多给 App 一次机会，不会误拒跳 ✓ |
+| P1b | commit 写入后（回读校验前后均同） | 新副本有效且 sequence 更大 | 计数已生效 ✓ |
+| P2 | 跳转后 App 崩溃、未确认 | attempts 已落盘 | 累积到 `BOOT_MAX_ATTEMPTS` 触发拒跳 ✓ |
+| P3 | App 已写 'CONF'、Boot 未消费 | CONF 在 SRAM 邮箱存活（软件复位） | 下次消费并清零 ✓ |
+| App 反复崩溃 | 每周期都是 P2 | attempts 累积到 3 | 拒跳，停留升级模式 ✓ |
 
-不变式"**任意时刻断电，下次上电必然回到一个可启动的状态**"在每个断点都成立。唯一的边界情况：若 App 崩溃循环恰好每次都在 P3 确认之后——那是 App 自己确认了一个坏固件，属确认语义的信任问题（真实工程要求自检通过后才 confirm，见 §4.3），Boot 无法代偿。
+不变式"**任意时刻断电，下次上电必然回到一个可启动的状态**"在每个断点都成立。P1a 是唯一丢计数的窗口，且失败方向是安全的（多试一次而非误回滚）。
 
-## 4. App 侧配合：fake_app 起步三件事
+### 3.1 代价：每次启动一次 sector 擦写
 
-`app_main.c` 的 main 入口顺序不可换：
+`PREPARE_BOOT` 每次都 commit 元数据 = 轮流擦写 sector 2/3（各 16 KB，标称 1 万次擦写周期）。两副本交替承担，等效 2 万次启动余量——开发期每天重启上百次也够用数年，**量产前需要评估**。业界替代（MCUboot 风格）：把 attempts 放在槽尾 trailer 由槽自管理，元数据只在切换事件时提交；本项目 v0.3 引入掉电注入测试时一并权衡。
+
+### 3.2 双副本为什么能兜底
+
+commit 按 `sequence` 奇偶交替选目标（偶写 A、奇写 B），load 取"有效且 sequence 较大"者。两份副本各占一个独立 sector（2/3），擦除其中一份永远不会波及另一份（F4 擦除单元是整个 sector，这是分区表为元数据划出两个 sector 的原因，见 [01-architecture.md](01-architecture.md) §5.2 推导 1）。于是"擦除目标 → 写入"的任意中间态掉电，另一份完整副本始终可加载。
+
+## 4. App 侧集成约定（boot_client，v0.2.0 待实现）
+
+> [!NOTE]
+> v0.1.0 的 `Keil_OTA_Boot/App/`（fake_app + boot_client）已随分区调整移除，应用侧由独立工程 `Keil_App/` 承担。当前 Keil_App 为 CubeMX 骨架（USART1/2 + TIM2 已配置待用），本节是 `boot_client` 重新集成时的设计输入。
+
+`boot_client` 集成后，App 入口顺序不可换：
 
 ```c
 SCB->VTOR = BOOT_SLOT_A_ADDR;   /* ① 向量表重定位        */
 __enable_irq();                 /* ② 恢复 PRIMASK        */
 HAL_Init();                     /* ③ 常规初始化          */
 ```
+
+首选方案是改用 `system_stm32f4xx.c` 的 `USER_VECT_TAB_ADDRESS` + `VECT_TAB_OFFSET 0x20000` 宏（SystemInit 里设 VTOR），彻底关闭"启动代码到 main 之间"的窗口期——见下方 §4.2。
 
 ### 4.1 为什么 App 要再设一次 VTOR
 
@@ -275,9 +285,14 @@ E:\Keil5\UV4\UV4.exe -b "Keil_App\MDK-ARM\Keil_App.uvprojx"           -j0 -o app
 
 | # | 妥协 | 为什么现在可接受 | 计划收紧 |
 |---|---|---|---|
-| 1 | 跳转用 C 函数指针而非汇编 | AC5 实测代码生成不触旧栈 | v0.2.0 改汇编（§2.3） |
-| 2 | App 的 VTOR 在 main 而非 SystemInit 设置 | 窗口期内无中断使能，风险为零 | v0.2.0 改 VECT_TAB_OFFSET（§4.2） |
-| 3 | 校验只有 SP/PC 范围检查 | 无传输链路，CRC 无保护对象 | v0.2.0 固件头 + CRC（§2.1） |
+| 1 | 跳转用 C 函数指针而非汇编 | AC5 实测代码生成不触旧栈（§2.3） | 工具链迁移时改汇编（§2.3） |
+| 2 | App 的 VTOR 在 main 而非 SystemInit 设置 | 窗口期内无中断使能，风险为零 | `boot_client` 集成时改 `USER_VECT_TAB_ADDRESS`（§4.2） |
+| 3 | 校验只有 SP/PC 范围检查 | 无传输链路，CRC 无保护对象；`boot_crc` 已就绪待接入 | 随 YMODEM 接入固件头 + CRC（§2.1） |
+| 4 | 每次启动 commit 元数据 = 一次 sector 擦写 | 双副本交替，等效 2 万次启动余量（§3.1） | v0.3 掉电注入测试时权衡槽尾 trailer 方案 |
+| 5 | 擦写函数仍在 Flash 中执行（非 RAMFUNC） | 单任务环境，stall 延迟可接受（`boot_flash.c` 头注释） | v0.3 引入中断驱动传输时迁移 |
+| 6 | 首次上电元数据伪造 `image_size` = 全槽大小 | 无固件头可读（F-08 未实现），跳转校验只看向量表 | F-08 落地后改为真实值或 0（未知） |
+| 7 | 邮箱 `attempts` 字段与 API 保留未用 | v0.1 兼容遗留，避免无谓 API 破坏 | v0.3 评审去留 |
+| 8 | 拒跳后停留升级模式，不自动跳回旧槽 | v0.2 只承诺"拒跳"（README F-04）；rollback 数据层已就绪 | v0.3 接通"回滚→跳转 confirmed 槽"（§7.1 状态机） |
 
 ---
 

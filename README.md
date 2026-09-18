@@ -160,9 +160,9 @@ stateDiagram-v2
 | F-06 | YMODEM 接收（含重传与超时） | 📋 |
 | F-08 | 固件头解析 | 📋 |
 | F-09 | 固件合法性校验 | 📋 |
-| F-10 | 元数据双副本原子更新 | 📋 |
+| F-10 | 元数据双副本原子更新 | 🚧 双副本读写已实现（`boot_metadata`），随传输链路串联 |
 | F-11 | 升级状态机 | 📋 |
-| F-12 | A/B 分区切换 | 📋 |
+| F-12 | A/B 分区切换 | 🚧 切换数据层已实现（mark_pending / confirm / rollback） |
 | F-13 | 掉电安全 | 📋 |
 | F-14 | 启动失败自动回滚 | 📋 |
 | F-15 | 应用侧确认接口 | 🚧 数据层就绪，App 集成随 v0.2.0 |
@@ -274,7 +274,7 @@ ota flash --port COM3 firmware.pkg
 | [架构设计](docs/01-architecture.md) | 分层架构、芯片层接口、分区布局、数据格式、升级状态机、F4 平台约束 |
 | [开发指南](docs/02-git-and-github.md) | Git 配置、提交规范、分支策略、文档写作规范 |
 | [代码风格](docs/03-code-style.md) | 命名规范、CubeMX 区纪律、注释与格式硬性纪律 |
-| [实现详解](docs/04-boot-implementation.md) | v0.1.0 实现决策记录：BKP 通信、跳转清单逐项分析、掉电窗口、已知妥协、上板验收手册 |
+| [实现详解](docs/04-boot-implementation.md) | 实现决策记录：SRAM 邮箱通信、跳转清单逐项分析、掉电窗口、已知妥协、上板验收手册 |
 | [生态对标](docs/05-bootloader-landscape.md) | 主流 Bootloader 实现调研、六维度裁剪矩阵、分版本对标路线 |
 
 ## ⚠️ 风险提示
