@@ -106,14 +106,24 @@ boot_status_t boot_process(boot_context_t *context)
             break;
 
         case BOOT_STATE_DECIDE:
-            /* App 确认优先消费：新固件已自检通过，清连续启动计数。 */
+            /* App 确认优先消费：确认语义是"当前运行的固件健康"。
+             * 存在 pending 切换时，完成切换并把 pending 槽转正；
+             * 无 pending 时把 active 槽标为 CONFIRMED 并清零计数——
+             * 清零必须提交落盘，否则下次 LOAD_FLAGS 又从元数据读回
+             * 旧值继续累积，最终误触发回滚。元数据本来就干净
+             * （pending==NONE 且计数==0）时跳过提交，避免多余擦写。 */
             if (context->app_confirmed)
             {
-                if (context->metadata.pending_slot != BOOT_SLOT_ID_NONE)
+                if ((context->metadata.pending_slot != BOOT_SLOT_ID_NONE) ||
+                    (context->metadata.boot_attempts != 0u))
                 {
-                    status = boot_metadata_confirm(
-                        &context->metadata,
-                        (boot_slot_id_t)context->metadata.pending_slot);
+                    boot_slot_id_t slot_to_confirm =
+                        (context->metadata.pending_slot != BOOT_SLOT_ID_NONE) ?
+                        (boot_slot_id_t)context->metadata.pending_slot :
+                        (boot_slot_id_t)context->metadata.active_slot;
+
+                    status = boot_metadata_confirm(&context->metadata,
+                                                   slot_to_confirm);
                     if (status != BOOT_STATUS_OK)
                     {
                         context->wait_reason = BOOT_WAIT_REASON_INTERNAL_ERROR;

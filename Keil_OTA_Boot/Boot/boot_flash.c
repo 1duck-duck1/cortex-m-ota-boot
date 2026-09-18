@@ -3,9 +3,121 @@
 #include "stm32f4xx_hal.h"
 #include <stdint.h>
 
+/*
+ * Flash 擦写为寄存器级实现（架构文档 §8.4），两条硬性理由：
+ * 1. 超时不依赖 SysTick：HAL 的 FLASH_WaitForLastOperation 以
+ *    HAL_GetTick() 计超时，而擦写期间取指 stall、tick 冻结，
+ *    Flash 出错时超时永不触发，退化为无界死循环。此处改为
+ *    有界循环计数轮询 BSY，错误时保证退出。
+ * 2. 调用链可控：RAMFUNC 约束（§8.1）将来引入时只涉及本文件。
+ *
+ * 注意：擦写函数本身仍在 Flash 中执行——F4 擦写期间取指会
+ * stall 直到操作完成（RM0090 §3.5.5），Bootloader 单任务环境
+ * 下该延迟可接受；待 v0.3 引入中断驱动的传输层时再迁 RAMFUNC。
+ */
+
+#define BOOT_FLASH_KEY1         0x45670123u
+#define BOOT_FLASH_KEY2         0xCDEF89ABu
+/* 有界轮询上限：约 5 秒 @168MHz，覆盖 128 KB sector 最坏擦除时间。 */
+#define BOOT_FLASH_TIMEOUT_LOOP 100000000u
+
+/* 擦除/编程错误标志（写 1 清零）。 */
+#define BOOT_FLASH_ERR_MASK     (FLASH_SR_WRPERR | FLASH_SR_PGAERR | \
+                                 FLASH_SR_PGPERR | FLASH_SR_PGSERR)
+
 static bool boot_flash_add_ok(uint32_t address, uint32_t size)
 {
     return (size <= (UINT32_MAX - address));
+}
+
+static void boot_flash_unlock(void)
+{
+    if ((FLASH->CR & FLASH_CR_LOCK) != 0u)
+    {
+        FLASH->KEYR = BOOT_FLASH_KEY1;
+        FLASH->KEYR = BOOT_FLASH_KEY2;
+    }
+}
+
+static void boot_flash_lock(void)
+{
+    FLASH->CR |= FLASH_CR_LOCK;
+}
+
+/** @brief 有界等待 BSY 清零；false 表示超时（Flash 出错时保证退出）。 */
+static bool boot_flash_wait_idle(void)
+{
+    uint32_t guard = BOOT_FLASH_TIMEOUT_LOOP;
+
+    while ((FLASH->SR & FLASH_SR_BSY) != 0u)
+    {
+        if (--guard == 0u)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void boot_flash_clear_flags(void)
+{
+    FLASH->SR = FLASH_SR_EOP | BOOT_FLASH_ERR_MASK;
+}
+
+static bool boot_flash_has_error(void)
+{
+    return (FLASH->SR & BOOT_FLASH_ERR_MASK) != 0u;
+}
+
+/** @brief 擦除单个 sector（调用方保证已解锁）。 */
+static bool boot_flash_erase_sector_unlocked(uint32_t sector)
+{
+    bool ok;
+
+    if (!boot_flash_wait_idle())
+    {
+        return false;
+    }
+    boot_flash_clear_flags();
+
+    FLASH->CR = (FLASH->CR & ~(FLASH_CR_SNB | FLASH_CR_PG)) |
+                FLASH_CR_SER |
+                ((sector << FLASH_CR_SNB_Pos) & FLASH_CR_SNB);
+    FLASH->CR |= FLASH_CR_STRT;
+
+    ok = boot_flash_wait_idle();
+    FLASH->CR &= ~FLASH_CR_SER;
+    if (!ok || boot_flash_has_error())
+    {
+        boot_flash_clear_flags();
+        return false;
+    }
+    return true;
+}
+
+/** @brief 按 32 位字编程一次（调用方保证已解锁）。 */
+static bool boot_flash_program_word_unlocked(uint32_t address, uint32_t word)
+{
+    bool ok;
+
+    if (!boot_flash_wait_idle())
+    {
+        return false;
+    }
+    boot_flash_clear_flags();
+
+    FLASH->CR = (FLASH->CR & ~FLASH_CR_PSIZE) | FLASH_PSIZE_WORD | FLASH_CR_PG;
+    __DSB();
+    *(volatile uint32_t *)address = word;
+
+    ok = boot_flash_wait_idle();
+    FLASH->CR &= ~FLASH_CR_PG;
+    if (!ok || boot_flash_has_error())
+    {
+        boot_flash_clear_flags();
+        return false;
+    }
+    return true;
 }
 
 static boot_status_t boot_flash_program_words(uint32_t address,
@@ -20,7 +132,7 @@ static boot_status_t boot_flash_program_words(uint32_t address,
         return BOOT_STATUS_INVALID_PARAM;
     }
 
-    HAL_FLASH_Unlock();
+    boot_flash_unlock();
     while (index < size)
     {
         uint32_t word = 0xFFFFFFFFu;
@@ -33,16 +145,14 @@ static boot_status_t boot_flash_program_words(uint32_t address,
             word |= ((uint32_t)data[index + i]) << (8u * i);
         }
 
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,
-                              address + index,
-                              word) != HAL_OK)
+        if (!boot_flash_program_word_unlocked(address + index, word))
         {
-            HAL_FLASH_Lock();
+            boot_flash_lock();
             return BOOT_STATUS_FLASH_ERROR;
         }
         index += copy_size;
     }
-    HAL_FLASH_Lock();
+    boot_flash_lock();
     return BOOT_STATUS_OK;
 }
 
@@ -77,25 +187,28 @@ boot_status_t boot_flash_init(void)
 
 boot_status_t boot_flash_erase_slot(boot_slot_id_t slot_id)
 {
-    FLASH_EraseInitTypeDef erase = {0};
-    uint32_t page_error = 0u;
-    HAL_StatusTypeDef hal_status;
+    uint32_t first_sector;
+    uint32_t i;
 
     if ((slot_id != BOOT_SLOT_ID_A) && (slot_id != BOOT_SLOT_ID_B))
     {
         return BOOT_STATUS_INVALID_PARAM;
     }
 
-    erase.TypeErase = FLASH_TYPEERASE_SECTORS;
-    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-    erase.Sector = (slot_id == BOOT_SLOT_ID_A) ? FLASH_SECTOR_5 : FLASH_SECTOR_8;
-    erase.NbSectors = 3u;
+    /* Slot A 占 sector 5-7，Slot B 占 sector 8-10。 */
+    first_sector = (slot_id == BOOT_SLOT_ID_A) ? FLASH_SECTOR_5 : FLASH_SECTOR_8;
 
-    HAL_FLASH_Unlock();
-    hal_status = HAL_FLASHEx_Erase(&erase, &page_error);
-    HAL_FLASH_Lock();
-
-    return (hal_status == HAL_OK) ? BOOT_STATUS_OK : BOOT_STATUS_FLASH_ERROR;
+    boot_flash_unlock();
+    for (i = 0u; i < 3u; i++)
+    {
+        if (!boot_flash_erase_sector_unlocked(first_sector + i))
+        {
+            boot_flash_lock();
+            return BOOT_STATUS_FLASH_ERROR;
+        }
+    }
+    boot_flash_lock();
+    return BOOT_STATUS_OK;
 }
 
 boot_status_t boot_flash_write(uint32_t address,
@@ -113,8 +226,6 @@ boot_status_t boot_flash_write(uint32_t address,
 
 boot_status_t boot_flash_erase_metadata(uint32_t address)
 {
-    FLASH_EraseInitTypeDef erase = {0};
-    uint32_t page_error = 0u;
     uint32_t sector;
 
     if (address == BOOT_META_A_ADDR)
@@ -130,17 +241,13 @@ boot_status_t boot_flash_erase_metadata(uint32_t address)
         return BOOT_STATUS_INVALID_PARAM;
     }
 
-    erase.TypeErase = FLASH_TYPEERASE_SECTORS;
-    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
-    erase.Sector = sector;
-    erase.NbSectors = 1u;
-    HAL_FLASH_Unlock();
-    if (HAL_FLASHEx_Erase(&erase, &page_error) != HAL_OK)
+    boot_flash_unlock();
+    if (!boot_flash_erase_sector_unlocked(sector))
     {
-        HAL_FLASH_Lock();
+        boot_flash_lock();
         return BOOT_STATUS_FLASH_ERROR;
     }
-    HAL_FLASH_Lock();
+    boot_flash_lock();
     return BOOT_STATUS_OK;
 }
 
