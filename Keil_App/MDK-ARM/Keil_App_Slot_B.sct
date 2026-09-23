@@ -1,0 +1,20 @@
+; App Slot B: 0x08080000, sectors 8-10, 384 KB.
+; The first 512 bytes of the slot hold the image header. The application is
+; linked at slot base + 0x200 so that SCB->VTOR stays 512-byte aligned, and the
+; header area is deliberately left out of the image: only Boot writes it.
+; SRAM2 top 32 bytes are reserved for the Boot mailbox.
+
+LR_IROM1 0x08080200 0x0005FE00  {
+  ER_IROM1 0x08080200 0x0005FE00  {
+   *.o (RESET, +First)
+   *(InRoot$$Sections)
+   .ANY (+RO)
+   .ANY (+XO)
+  }
+  RW_IRAM1 0x20000000 0x0001C000  {
+   .ANY (+RW +ZI)
+  }
+  RW_IRAM2 0x2001C000 0x00003FE0  {
+   .ANY (+RW +ZI)
+  }
+}

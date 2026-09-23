@@ -30,10 +30,14 @@ Testing/
 *.htm
 *.lst
 *.log
+**/MDK-ARM/build_log.txt
 **/MDK-ARM/Objects/
 **/MDK-ARM/Listings/
 **/MDK-ARM/Keil_OTA_Boot/
+**/MDK-ARM/Keil_App/
 **/MDK-ARM/fake_app/
+**/MDK-ARM/RTE/_App_Slot_*/
+**/MDK-ARM/DebugConfig/App_Slot_*.dbgconf
 
 # ---- J-Link ----
 JLinkLog.txt
@@ -46,6 +50,12 @@ Release/
 *.ewd
 *.ewp.bak
 *.dep
+
+# ---- .NET / C#（上位机工具） ----
+.vs/
+bin/
+obj/
+*.csproj.user
 
 # ---- 编辑器与 IDE ----
 .vscode/*

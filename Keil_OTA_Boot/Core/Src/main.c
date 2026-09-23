@@ -89,7 +89,8 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  boot_run();  /* Bootloader 主流程：校验 App → 跳转 / 停留升级模式，正常不返回 */
+  /* 启动决策与跳转全在 boot_main() 里，本函数不会返回。 */
+  boot_main();
   /* USER CODE END 2 */
 
   /* Infinite loop */

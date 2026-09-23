@@ -18,13 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "app_boot_client.h"
+#include "app_cli.h"
+#include "app_ota_service.h"
+#include "app_transport.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,8 +70,8 @@ void SystemClock_Config(void);
 int main(void)
 {
 
-
   /* USER CODE BEGIN 1 */
+
 
   /* USER CODE END 1 */
 
@@ -89,11 +93,31 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 向量表必须最早重定位：从此以后每一次中断（含 SysTick）都走 App 自己的表。
+     地址与 Boot 跳转时写入的 SCB->VTOR 一致，都是槽首 + 镜像头偏移。 */
+  app_boot_client_init();
 
+  /* 串口起不来不致命：业务照常跑，只是少了命令行与升级入口。 */
+  app_transport_init();
+
+  /* 启动自检通过点：能走到这里说明时钟、GPIO、串口与命令行都已就绪，
+     任何一步失败都会停在 Error_Handler。本次若是 Boot 的试运行启动，就地确认
+     并复位，让 Boot 把 Pending 转正后以普通启动再跑一遍；否则新固件要靠 PC
+     手工发 `ota confirm`，漏一次就消耗一次试运行机会，三次用完即回滚。
+
+     确认必须配合复位：只写邮箱不复位的话，中途掉电会把 SRAM2 里的
+     confirmation 一起丢掉，而 Boot 侧试运行次数已经加过了，反复上电就可能
+     在镜像完全正常的情况下被误判回滚。 */
+  if (app_boot_client_is_pending())
+  {
+    app_transport_deinit();
+    app_boot_client_confirm_and_reset();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -103,6 +127,30 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    if (app_ota_service_is_active())
+    {
+      /* 会话期间不喂命令行：YMODEM 的二进制流会把行缓冲冲乱（与 Boot 侧同规则）。 */
+      app_ota_result_t result = app_ota_service_run();
+
+      if (result != APP_OTA_BUSY)
+      {
+        app_cli_report_ota(result);
+
+        if (result == APP_OTA_DONE)
+        {
+          /* NVS 请求已落盘，干净复位让 Boot 的 NVS 处理与启动决策重走一遍。
+             这里刻意不用 app_boot_client_request_boot()：那会置位邮箱的 REQB，
+             Boot 会因此停在升级模式，而不是去启动刚收到的 pending 镜像。 */
+          app_transport_deinit();
+          NVIC_SystemReset();
+        }
+      }
+    }
+    else
+    {
+      app_cli_poll();
+      app_boot_client_heartbeat();
+    }
   }
   /* USER CODE END 3 */
 }
