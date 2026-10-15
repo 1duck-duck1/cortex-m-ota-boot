@@ -197,6 +197,11 @@ boot_nvs_report_t boot_nvs_process(uint32_t running_slot, boot_metadata_t *metad
     verify_header.image_size = request.image_size;
     verify_header.payload_crc32 = crc32;
     verify_header.version = request.version;
+    /* 必须有这两行：verify_header 是本地重建的，memset 后 sig_algorithm 为 0，
+       boot_verify_image() 会当成"未签名"当场拒绝，签名正确也报 SIGNATURE_INVALID。
+       这两个字段在 28 字节签名前缀之外，不影响被签哈希。 */
+    verify_header.sig_algorithm = request.sig_algorithm;
+    verify_header.pubkey_id = request.pubkey_id;
     if (!boot_verify_image(base, &verify_header, request.signature, request.pubkey_id)) {
         report.result = BOOT_NVS_RESULT_SIGNATURE_INVALID;
         return report;
