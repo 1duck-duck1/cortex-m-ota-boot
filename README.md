@@ -16,8 +16,8 @@
 </div>
 
 > [!NOTE]
-> **当前状态：v0.2.0 开发中**
-> v0.1.0 双向跳转闭环已交付；v0.2.0 迭代中已完成 Flash 分区对称化（A/B 各 384 KB）、Boot/App 两侧链接边界收窄、跨复位通信迁移至 `.noinit` SRAM 邮箱。App 侧 `boot_client` 集成与 UART 升级通道开发中。真板验收步骤见 [实现详解 §6](docs/04-boot-implementation.md)。当前构建基于 Keil MDK-ARM（AC5）；快速开始一节的 CMake 工具链为目标形态。
+> **当前状态：v0.2.0 开发中，v0.4.0 的 X-01 镜像验签已落地**
+> v0.1.0 双向跳转闭环已交付；v0.2.0 已完成 Flash 分区对称化（A/B 各 384 KB）、Boot/App 两侧链接边界收窄、跨复位通信迁移至 `.noinit` SRAM 邮箱，并打通 UART + YMODEM 升级链路——Boot 侧 `boot_update` 与 App 侧 `app_ota_service` 共用 `Common/ota/` 的硬件无关模块（YMODEM / CLI / CRC32 / 镜像头）。App 侧 `app_boot_client` 已集成：试运行固件在启动自检通过后自动确认并复位。**X-01 镜像验签已落地**：镜像头升至 v2、Boot 侧 `boot_verify` 以内置公钥验 Ed25519 签名、上位机负责签名与传签（`--genkey` 生成密钥对）。待办：X-02 防回滚、IWDG 看门狗回滚（v0.3）与真板验收。构建路径已双轨：Keil MDK-ARM（AC5）与 CMake + arm-none-eabi-gcc 均可编出同一套产物，地址与分区逐项一致。
 
 ---
 
@@ -123,21 +123,40 @@ flowchart TD
     class HW hw
 ```
 
+> [!NOTE]
+> 上图是**目标形态**（规划的 `core` / `mcu` / `transport` 分层）；当前实际布局是 `Keil_OTA_Boot/`（Boot）+ `Keil_App/`（应用）+ `Common/ota/`（两侧共享的硬件无关模块），详见 [📁 仓库结构](#-仓库结构) 与 [代码风格规范](docs/03-code-style.md)。
+
 依赖方向严格单向：`core` 只依赖 `mcu` 与 `transport` 的**接口**。`core` 被保留下来的唯一理由是"能在 PC 上跑断电注入测试"——掉电安全这件事必须能自动化验证，而不是靠手拔电碰运气。
 
 ## 🔄 升级流程
 
+升级拆成**两个正交的状态层**：一次 OTA 传输走"接收会话"，每次上电走"启动决策"；两者只通过持久元数据与 SRAM 邮箱衔接。
+
 ```mermaid
-stateDiagram-v2
-    [*] --> IDLE : 上电
-    IDLE --> RECEIVING : 收到升级请求
-    RECEIVING --> IDLE : 掉电 / 中断（旧固件不受影响）
-    RECEIVING --> VERIFIED : 接收完毕 + 校验通过
-    VERIFIED --> PENDING_TEST : 切换激活槽
-    PENDING_TEST --> CONFIRMED : App 调用 boot_confirm
-    PENDING_TEST --> ROLLBACK : 启动尝试超过 3 次
-    ROLLBACK --> CONFIRMED : 切回旧槽
-    CONFIRMED --> [*] : 跳转 App
+flowchart TD
+    subgraph RECV["接收会话 · boot_update_state_t"]
+        direction LR
+        R0(["IDLE"]) --> R1["HANDSHAKE"]
+        R1 --> R2["RECEIVE"]
+        R2 --> R3["FINAL"]
+        R2 -.->|超时 / 重传超限 / 中止| RF["FAILED"]
+        R3 -.->|复核失败| RF
+        R3 --> RD["DONE"]
+        RF --> R0
+    end
+
+    subgraph DECIDE["启动决策 · boot_decision_t"]
+        direction TB
+        DD{"boot_main_decide()"}
+        DD -->|pending 有效且未超次数| D4["RUN_PENDING"]
+        DD -->|active 有效| D3["RUN_ACTIVE"]
+        DD -->|active 失效、另一槽可用| D2["RUN_RECOVER"]
+        DD -->|两槽都不可用| D1["WAIT_UPDATE"]
+        D4 -.->|confirm 转正| D3
+        D4 -.->|计数用尽、clear_pending| D3
+    end
+
+    RD -->|软复位后重新决策| DECIDE
 ```
 
 > [!IMPORTANT]
@@ -152,30 +171,31 @@ stateDiagram-v2
 
 | 编号 | 功能 | 状态 |
 |---|---|:---:|
-| F-01 | 应用有效性校验（magic / CRC / HW ID） | 🚧 SP/PC 范围检查已实现，CRC 待 v0.2 |
+| F-01 | 应用有效性校验（magic / CRC / HW ID） | ✅ 镜像头 + 载荷 CRC32 + 向量表 + 签名四道关（`boot_image` + `boot_verify`） |
 | F-02 | 应用跳转（VTOR / MSP / 外设反初始化） | ✅ |
-| F-03 | 应用侧请求进入 Bootloader | 🚧 数据层就绪，App 集成随 v0.2.0 |
-| F-04 | 启动失败保护 | ✅ 计数拒跳；自动回滚待双槽（v0.3） |
+| F-03 | 应用侧请求进入 Bootloader | ✅ `app_boot_client_request_boot()`（SRAM 邮箱 + 软复位） |
+| F-04 | 启动失败保护 | ✅ 试运行计数耗尽即回滚到 active 槽 |
 | F-05 | 传输抽象层 | 📋 |
-| F-06 | YMODEM 接收（含重传与超时） | 📋 |
-| F-08 | 固件头解析 | 📋 |
-| F-09 | 固件合法性校验 | 📋 |
-| F-10 | 元数据双副本原子更新 | 🚧 双副本读写已实现（`boot_metadata`），随传输链路串联 |
-| F-11 | 升级状态机 | 📋 |
-| F-12 | A/B 分区切换 | 🚧 切换数据层已实现（mark_pending / confirm / rollback） |
-| F-13 | 掉电安全 | 📋 |
-| F-14 | 启动失败自动回滚 | 📋 |
-| F-15 | 应用侧确认接口 | 🚧 数据层就绪，App 集成随 v0.2.0 |
-| F-16 | 自身分区写保护 | 📋 |
-| F-17 | 固件打包工具 | 📋 |
-| F-18 | 上位机升级工具 | 📋 |
-| F-19 | 串口命令行 | 📋 |
+| F-06 | YMODEM 接收（含重传与超时） | ✅ `boot_update` + `Common/ota/ota_ymodem` |
+| F-08 | 固件头解析 | ✅ `Common/ota/ota_image` + `boot_image` |
+| F-09 | 固件合法性校验 | ✅ 镜像头自洽 + 载荷 CRC32 + SP/PC |
+| F-10 | 元数据双副本原子更新 | ✅ `boot_metadata` 双副本 load/save，随升级链路串联 |
+| F-11 | 升级状态机 | ✅ `boot_update_state_t` 接收会话状态机 |
+| F-12 | A/B 分区切换 | ✅ mark_pending / confirm / clear_pending |
+| F-13 | 掉电安全 | 🚧 元数据双副本 + 邮箱已就绪，断电注入测试待 v0.3 |
+| F-14 | 启动失败自动回滚 | 🚧 计数耗尽回滚已连通；无看门狗，卡死固件需自身复位（v0.3） |
+| F-15 | 应用侧确认接口 | ✅ `app_boot_client_confirm_and_reset()` |
+| F-16 | 自身分区写保护 | ✅ 目标槽由 Boot 推导，受保护槽不擦除 |
+| F-17 | 固件打包工具 | 🚧 `ota adopt` 可从既有槽反推长度/CRC 落元数据；PC 打包器待补 |
+| F-18 | 上位机升级工具 | 🚧 C# 上位机可用（`Tool/固件升级上位机/`）；Python 版归 v0.5.0 |
+| F-19 | 串口命令行 | ✅ `Common/ota/ota_cli` + Boot/App 各自命令层 |
 | F-21 | PC 端单元测试 | 📋 |
+| X-01 | Ed25519 签名校验 | ✅ 镜像头 v2 + Boot 侧 `boot_verify` 验签；上位机签名 + 第 0 包传签（`--genkey` 生成密钥对） |
 
 <details>
 <summary><b>计划中的增强功能</b></summary>
 
-Ed25519 签名校验、防回滚、固件加密、CAN 传输、双 Bank 无搬运升级、Factory 救援固件。
+防回滚、固件加密、CAN 传输、双 Bank 无搬运升级、Factory 救援固件。
 
 </details>
 
@@ -190,31 +210,62 @@ Bootloader 自更新、差分升级、云平台/服务器端、图形化上位�
 
 ## 🚀 快速开始
 
-**当前（v0.2.0 开发中，Keil MDK-ARM + AC5）**——用 Keil 分别打开两个工程，编译并烧录：
+两条构建路径，产物地址与分区逐项一致，按手头工具任选其一。
+
+### 方式一：Keil MDK-ARM
+
+用 Keil 分别打开两个工程，编译并烧录：
 
 ```text
 Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx   ← Bootloader（0x08000000，32 KB 边界）
 Keil_App/MDK-ARM/Keil_App.uvprojx             ← 应用工程（0x08020000，Slot A）
 ```
 
-烧录顺序与邮箱观察方法见 [实现详解 §6](docs/04-boot-implementation.md)。App 侧 `boot_client` 集成开发中，完成前双向跳转闭环暂不可用。
+烧录顺序与邮箱观察方法见 [实现详解 §6](docs/04-boot-implementation.md)。
 
-**目标形态（CMake + GCC 工具链，随 v0.2.0 起逐步落地）**：
+### 方式二：CMake + arm-none-eabi-gcc
+
+无需 Keil 授权，三目标一次编出：
 
 ```bash
-# 1. 获取代码
 git clone https://github.com/1duck-duck1/cortex-m-ota-boot.git
 cd cortex-m-ota-boot
-
-# 2. 编译 Bootloader 与示例 App
 cmake -B build/f407 -G Ninja -DBOARD=stm32f407_demo
 cmake --build build/f407
-
-# 3. 烧录后，通过串口升级
-ota flash --port COM3 firmware.pkg
 ```
 
-**工具链依赖**：当前仅需 Keil MDK-ARM 5.38+（AC5）；目标形态另需 `arm-none-eabi-gcc` · `cmake` · `ninja` · Python 3.8+
+产物落在 `build/f407/`：
+
+| 目标 | 产物 | 烧录地址 | 说明 |
+|---|---|---|---|
+| `boot` | `boot.hex` / `boot.bin` | `0x08000000` | Bootloader，占 sector 0-1 共 32 KB |
+| `app_slot_a` | `app_slot_a.hex` / `.bin` | `0x08020200` | App，链接于槽首 +0x200 |
+| `app_slot_b` | `app_slot_b.hex` / `.bin` | `0x08080200` | App（Slot B） |
+
+> [!IMPORTANT]
+> App 的链接基址 `0x08020200` 落在页内偏移 0x200，链接器会把首个 LOAD 段下对齐到 `0x08020000`。**用调试器直烧 `.elf` 会把槽首头区写成 ELF 头字节**，请一律烧 `.hex` / `.bin`（两者起始地址已是 `0x08020200`）。
+
+### 首次上电与 `ota adopt`
+
+若 App 是调试器直烧进槽的（没走 Boot 的 YMODEM 接收），元数据里没有它的记录，Boot 不会跳转。此时从串口（USART2，115200-8-N-1）进 Boot CLI 补录：
+
+```text
+ota adopt A 0x00010000     # 扫描 Slot A 向量表，反推镜像长度与 CRC32，写入元数据并标为 pending
+reset                      # 复位后按决策流程启动该槽，App 自检通过即自动确认
+```
+
+随后即可走正式升级：
+
+```text
+ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推导（非激活槽）
+```
+
+再用上位机（`Tool/固件升级上位机/`，C# WinForms）发送已签名的固件包。Python 版 `ota flash --port COM3 firmware.pkg` 属 v0.5.0，**尚未实现**。
+
+> [!IMPORTANT]
+> **默认强制验签**：`boot_conf.h` 的 `BOOT_REQUIRE_SIGNATURE` 出厂为 `1`，未签名的固件会被 Boot 拒绝。首次使用先执行 `固件升级上位机.exe --genkey signing.key` 生成密钥对，把公钥填入 `Keil_OTA_Boot/Boot/Crypto/Src/boot_pubkey.c` 并重编译 Boot；私钥 `signing.key` 放在上位机同目录即可自动签名。开发期如需跳过验签，把该开关置 `0` —— 这也是 `ota adopt` 唯一可用的前提（设备侧无私钥，无法为直烧的槽补签名）。
+
+**工具链依赖**：Keil 路径需 MDK-ARM 5.38+（AC5）；CMake 路径需 `arm-none-eabi-gcc` · `cmake` ≥ 3.20 · `ninja`。
 
 ## 🛣️ 路线图
 
@@ -223,7 +274,7 @@ ota flash --port COM3 firmware.pkg
 | **v0.1.0** | 最小 Bootloader，双向跳转 | STM32F407VGT6 真板上双向跳转成功 |
 | **v0.2.0** | UART + YMODEM 升级到非激活槽 | 手动完成一次完整升级 |
 | **v0.3.0** | 掉电安全状态机 + 回滚 | PC 模拟 500 次随机断电全恢复 · 真板拔电 100 次全恢复 |
-| **v0.4.0** | Ed25519 签名 + 防回滚 | 篡改固件被拒绝 |
+| **v0.4.0** | Ed25519 签名 + 防回滚 | 篡改固件被拒绝（签名已落地，防回滚待做） |
 | **v0.5.0** | Python 上位机（pip 可装） | 一条命令完成升级 |
 | **v1.0.0** | 接口冻结 + 完整文档 | 外部开发者照文档在 F407 上独立完成一次升级 |
 
@@ -238,7 +289,7 @@ ota flash --port COM3 firmware.pkg
 |---|---|
 | 传输通道 | UART-YMODEM（v0.2）→ CAN / USB-DFU / UF2（v1.0+ 候选） |
 | 槽策略 | A/B 双槽，切换仅提交元数据 |
-| 安全等级 | CRC（v0.2）→ Ed25519 签名 + 防回滚（v0.4） |
+| 安全等级 | CRC（v0.2）→ **Ed25519 签名（已落地）** + 防回滚（v0.4） |
 | 回滚机制 | 计数器确认（F-04）→ 状态机自动回滚（v0.3） |
 | 入口方式 | App 回跳请求 → 超时窗口（候选） |
 | 元数据存放 | `.noinit` SRAM 邮箱（运行期）+ Flash 双副本（持久期） |
@@ -251,14 +302,18 @@ ota flash --port COM3 firmware.pkg
 ```text
 .
 ├── Keil_OTA_Boot/            Bootloader 工程（Keil MDK-ARM）
-│   ├── Boot/                 核心模块（conf / flag / flash / jump / main）
+│   ├── Boot/                 业务模块（Config / Core / Mailbox / Storage / Protocol / Crypto）
 │   ├── Core/                 CubeMX 生成（时钟 / GPIO / 中断）
 │   ├── Drivers/              ST 官方代码（CMSIS + HAL 最小子集）
 │   └── MDK-ARM/              工程文件 + 链接脚本（32 KB 边界）
-├── Keil_App/                 应用工程（Keil MDK-ARM，链接到 Slot A）
+├── Keil_App/                 应用工程（Keil MDK-ARM，链接到 Slot A 0x08020200）
+│   ├── App/                  业务模块（Config / Platform / Services / BootClient）
 │   ├── Core/                 CubeMX 生成（USART1/2 · TIM2）
 │   ├── Drivers/              ST 官方代码
-│   └── MDK-ARM/              工程文件 + 链接脚本（0x08020000 起）
+│   └── MDK-ARM/              工程文件 + 链接脚本
+├── cmake/                    GCC 工具链文件、启动文件与三个链接脚本（boot / app_slot_a / app_slot_b）
+├── Common/ota/               Boot 与 App 共享的硬件无关模块（YMODEM / CLI / CRC32 / 镜像头 / 升级请求）
+├── Tool/                     上位机（C# WinForms 固件升级工具，含 Ed25519 签名与 --genkey）
 ├── docs/                     设计与实现文档
 └── .github/workflows/        CI
 ```

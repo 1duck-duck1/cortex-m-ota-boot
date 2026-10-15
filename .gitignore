@@ -62,6 +62,7 @@ obj/
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/extensions.json
+.trae/
 .idea/
 *.swp
 *~
