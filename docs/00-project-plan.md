@@ -64,7 +64,7 @@ updated: 2026-09-18
 |---|---|---|
 | 硬件平台 | STM32F407VGT6（1 MB Flash / 12 sector，16·64·128 KB 三种粒度；128 KB SRAM） | **单芯片专用**：不做移植抽象，把 F4 的 sector 粒度、ART Accelerator、FPU 特性吃透 |
 | 运行环境 | 裸机，全程静态分配 | Bootloader 不使用 RTOS、不使用 `malloc` |
-| 库策略 | **HAL 混合制**：App 全 HAL；Bootloader 时钟/串口用 HAL（轮询模式），Flash 擦写只用寄存器级 + RAMFUNC | F4 Flash 外设无 LL 库；HAL 擦写链路的 RAMFUNC 与 tick 依赖不可控，理由详见架构文档 §8.4 |
+| 库策略 | **HAL 混合制**：App 全 HAL；Bootloader 时钟/串口用 HAL（串口发送轮询、接收中断+环形缓冲），Flash 擦写用 HAL + `BOOT_RAMFUNC`（擦写入口常驻 RAM） | F4 Flash 外设无 LL 库；擦写入口必须搬进 RAM 避免取指争用；串口接收若走轮询，1 KB 长帧收尾停顿会丢掉后续字节，故 RX 用中断+环形缓冲；HAL 超时依赖 SysTick，Boot 已开启且擦写期间不关中断，理由详见架构文档 §8.4 |
 | 升级传输 | UART + YMODEM | 后续扩展 CAN |
 | 安全特性 | v0.4.0 起引入 | v0.1.0 – v0.3.0 不加密、不签名 |
 | 语言 | C99（core 层） + Python（上位机/工具链） | core 层零依赖 |
@@ -85,7 +85,7 @@ updated: 2026-09-18
 
 - **F-01 应用有效性校验**：上电读取激活槽的固件头，校验 magic / CRC / HW ID，无效则停留在 Bootloader。
 - **F-02 应用跳转**：关中断、清 NVIC pending、反初始化外设、设置 `SCB->VTOR`、从 App 向量表取 MSP 与 Reset_Handler 并跳转。
-- **F-03 反向跳转**：App 通过备份寄存器（BKP）或保留 RAM 标志请求进入 Bootloader，实现"应用触发升级"。
+- **F-03 反向跳转**：App 通过 `.noinit` SRAM 邮箱请求进入 Bootloader，实现"应用触发升级"（v0.1.0 曾用 BKP，已迁移）。
 - **F-04 应用回跳保护**：防止 App 反复重启导致 Bootloader 无限循环。
 
 **传输与协议**
@@ -96,23 +96,23 @@ updated: 2026-09-18
 
 **固件与元数据**
 
-- **F-08 固件头解析**：magic / header_ver / hw_id / fw_version / image_size / crc32 / header_crc32。
-- **F-09 固件合法性校验**：头部 CRC → 载荷 CRC → HW ID 匹配 → 目标槽容量匹配。
+- **F-08 固件头解析**：`ota_image_header_t` 位于槽首 `0x200` 头区，字段为 magic / hw_id / header_version / header_size / load_offset / image_size / payload_crc32 / version / header_crc32。
+- **F-09 固件合法性校验**：空槽判定 → 头自洽性（magic / hw_id / 版本 / 几何 / header_crc32）→ 载荷 CRC32 → 向量表首两项。
 - **F-10 元数据双副本管理**：带序号 + CRC 的两份记录轮换写，保证任意时刻至少一份有效。
-- **F-11 升级状态机**：IDLE / RECEIVING / VERIFIED / PENDING_TEST / CONFIRMED / ROLLBACK。
+- **F-11 升级状态机**：拆成两层——接收会话（IDLE / HANDSHAKE / RECEIVE / FINAL / DONE / FAILED）与启动决策（WAIT_UPDATE / RUN_ACTIVE / RUN_PENDING / RUN_RECOVER）。
 - **F-12 A/B 分区切换**：更新元数据中的激活槽，不改动固件本体。
 
 **可靠性与安全**
 
 - **F-13 掉电安全**：接收过程中断电，重新上电可重新发起升级，旧固件不受影响（因为写入的是非激活槽）。
-- **F-14 启动失败自动回滚**：新固件处于 PENDING_TEST 时若连续启动尝试超过阈值（默认 3 次）仍未确认，自动切回旧槽。
-- **F-15 应用侧确认接口**：`boot_confirm()` 供 App 在自检通过后调用，将状态置为 CONFIRMED。
+- **F-14 启动失败自动回滚**：pending 槽试运行，每次跳转前先把 `boot_attempts + 1` 落盘；累积到 `>= max_attempts`（默认 3）仍未收到确认，即 `clear_pending` 清掉 pending 与计数，回滚到 `active_slot`。
+- **F-15 应用侧确认接口**：App 自检通过后向 `.noinit` SRAM 邮箱写 `CONFIRM`；Boot 下次上电消费邮箱（`launched_slot` 与 `pending_slot` 匹配）后调用 `confirm()` 并落盘，把 pending 槽转正为 active。
 - **F-16 自身分区写保护**：拒绝任何擦写 Bootloader 区与元数据区的越界请求。
 
 **工具与交付**
 
-- **F-17 固件打包工具**：Python 脚本，为 `.bin` 追加固件头，输出 `.pkg`。
-- **F-18 上位机升级工具**：Python，跨平台，`pip install` 可装，一条命令完成升级。
+- **F-17 固件打包工具**：为 `.bin` 追加固件头的打包步骤。当前由 Boot 侧 `boot_adopt`（给直接烧录、无长度信息的槽补镜像头）与上位机共同承担，独立的 Python 打包脚本尚未落地。
+- **F-18 上位机升级工具**：当前已交付 C# WinForms 上位机（`Tool/固件升级上位机/`）；规划中的 Python 跨平台、`pip install` 可装版本为 v0.5.0。
 - **F-19 串口命令行**：查询版本、槽状态、强制进入升级、擦除指定槽、手工确认。
 - **F-21 PC 端单元测试**：mock 芯片层（用 RAM 数组模拟 Flash），测试 core 层状态机与掉电恢复。
 
@@ -126,7 +126,7 @@ updated: 2026-09-18
 
 | 编号 | 功能 | 说明 |
 |---|---|---|
-| X-01 | Ed25519 签名校验 | 固件头追加签名域，公钥内置 |
+| X-01 | Ed25519 签名校验 | ✅ **已实现**（v0.4.0 首个落地项）。镜像头 v2 追加 `sig_algorithm` / `pubkey_id` / `signature` 域，公钥以常量固化在 Boot 内；上位机扩展 YMODEM 第 0 包以 `sig=<128 hex> kid=<2 hex>` 传递签名，Boot 在收尾、NVS 提交与启动决策三处验签 |
 | X-02 | 防回滚 | 固件版本单调递增，拒绝降级 |
 | X-03 | 固件加密 | AES-CTR 解密后校验 |
 | X-04 | CAN 传输 | 基于 F-07 帧协议 |
@@ -150,13 +150,16 @@ updated: 2026-09-18
 
 ## 🗺️ 4. 里程碑路线图
 
+> [!NOTE]
+> **当前进度**：v0.1.0 已交付；v0.2.0 进行中——UART + YMODEM 升级链路、A/B 双槽、双副本元数据、计数回滚、串口 CLI 与 C# 上位机均已落地，真板完整升级验收待做；v0.3.0 的断电注入测试与 `core/` 分层尚未开始；v0.4.0 的 X-01 **Ed25519 签名校验已落地**（镜像头升至 v2、Boot 侧验签、上位机签名 + 传签），X-02 防回滚待做。下列各版本中「代码落点 / 交付」的描述凡与实际不符处，已就地更正。
+
 每个版本都必须是**可独立发布、可被别人用起来**的状态。宁可版本号多，不要憋大招。
 
 ### v0.1.0 — 地基
 
 - **目标**：Bootloader 能跳 App，App 能跳回 Bootloader。
 - **交付**：F-01（简化版）、F-02、F-03、F-04、F-19（最小命令集）、仓库骨架、LICENSE、README。
-- **代码落点**：全部在 `code/mcu/stm32f4/` 与 `code/bsp/stm32f407_demo/` 内。**此时没有 `core/`、没有芯片层接口头**。
+- **代码落点**：实际交付为 `Keil_OTA_Boot/` 下的 Keil MDK 工程（原规划落点 `code/mcu/stm32f4/` 最终未采用）。**此时没有 `core/`、没有芯片层接口头**。
 - **不做**：Flash 擦写驱动与 YMODEM 属于 v0.2.0；v0.1.0 跳转只需读向量表，不需要写 Flash。
 - **验收**：STM32F407VGT6 真板上双向跳转成功，串口能看到 Bootloader 打印。
 - **纪律**：**允许写死、允许代码丑**，不引入任何抽象层。
@@ -175,14 +178,15 @@ updated: 2026-09-18
 - **验收**：
   1. PC 端 mock 测试：模拟 500 次随机断电点，全部恢复到可启动状态；
   2. 真板拔电测试：随机时刻断电 100 次，全部恢复正常。
-- **同时完成**：把硬件无关逻辑抠进 `core/`，此时才引入 `mcu` 分层与芯片层接口头。
+- **同时完成**（实际做法）：硬件无关模块（YMODEM 组帧、CLI、CRC32、镜像头、升级请求）收敛到 `Common/ota/`，由 Boot / App 两侧各自编译；接收与启动决策状态机留在 Boot 侧。未设立独立的 `core/` + `mcu` 分层。
 - **纪律**：抠 `core` 的过程中如果发现抽象别扭，**重构抽象，不要打补丁**。
 
 ### v0.4.0 — 安全
 
 - **目标**：不可信固件无法运行。
-- **交付**：X-01（Ed25519 签名校验）、X-02（防回滚）。
-- **验收**：篡改 1 字节的固件被拒绝；低版本固件被拒绝。
+- **交付**：X-01（Ed25519 签名校验）**已落地**、X-02（防回滚）待做。
+- **X-01 落点**：`Keil_OTA_Boot/Boot/Crypto/`（`boot_verify` 验签封装 + `boot_pubkey` 内置公钥 + vendored Monocypher），镜像头升至 v2，上位机 `Crypto/` 现并支持 `--genkey` 生成密钥。
+- **验收**：篡改 1 字节的固件被拒绝；低版本固件被拒绝（后者依赖 X-02）。
 
 ### v0.5.0 — 好用
 

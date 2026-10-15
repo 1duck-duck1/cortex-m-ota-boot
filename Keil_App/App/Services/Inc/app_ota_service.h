@@ -59,6 +59,8 @@ typedef struct
     uint32_t crc32;             /**< 实收数据累计 CRC32 */
     app_ota_result_t result;    /**< 最近一次会话的结束状态 */
     app_ota_reason_t reason;    /**< 最近一次会话的原因 */
+    bool has_signature;         /**< 第 0 包是否带 sign= 签名声明 */
+    uint8_t pubkey_id;          /**< 签名所用公钥编号，无签名时为 0 */
 } app_ota_status_t;
 
 /**

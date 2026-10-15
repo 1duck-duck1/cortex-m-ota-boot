@@ -19,10 +19,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/** @brief 取槽位起始地址；slot_id 不是 A/B 时返回 0 */
+/**
+ * @brief  取槽位起始地址
+ * @param  slot_id APP_SLOT_ID_A / APP_SLOT_ID_B
+ * @return 槽起始地址；slot_id 不是 A/B 时返回 0
+ */
 uint32_t app_flash_slot_base(uint32_t slot_id);
 
-/** @brief 取槽位容量（字节）；slot_id 不是 A/B 时返回 0 */
+/**
+ * @brief  取槽位容量
+ * @param  slot_id APP_SLOT_ID_A / APP_SLOT_ID_B
+ * @return 容量字节数；slot_id 不是 A/B 时返回 0
+ */
 uint32_t app_flash_slot_size(uint32_t slot_id);
 
 /**

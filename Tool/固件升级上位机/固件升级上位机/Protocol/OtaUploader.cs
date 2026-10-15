@@ -15,6 +15,15 @@ internal sealed class UploadRequest
 
     /// <summary>版本号，null 表示不在第 0 包里声明。</summary>
     public uint? Version { get; init; }
+
+    /// <summary>预设的 64 字节 Ed25519 签名；非 null 时直接使用，不再本地签名。</summary>
+    public byte[]? Signature { get; init; }
+
+    /// <summary>签名所用公钥编号，写入第 0 包的 <c>kid=</c> 字段。</summary>
+    public byte PubkeyId { get; init; } = 1;
+
+    /// <summary>Ed25519 私钥文件路径；null 时回落到程序目录下的 <c>signing.key</c>。</summary>
+    public string? SigningKeyPath { get; init; }
 }
 
 /// <summary>一次升级会话的结果。</summary>
@@ -149,6 +158,10 @@ internal sealed class OtaUploader
         _log($"[工具] 镜像 {request.FileName}：{image.Length} 字节，CRC32=0x{localCrc32:X8}");
         _log($"[工具] 镜像自检：{ImageProbe.Describe(image)}");
 
+        /* 签名必须在登记命令之前定下来：设备一旦收到 ota recv 就进入 YMODEM，
+           第 0 包里的 sig=/kid= 必须是最终值。 */
+        (byte[]? signature, byte pubkeyId) = ResolveSignature(request, image);
+
         try
         {
             _link.DiscardInput();
@@ -173,7 +186,7 @@ internal sealed class OtaUploader
 
             _log("[工具] 设备已就绪，发送第 0 包（文件信息）");
 
-            SendFileInfo(request, image.Length, cancellationToken);
+            SendFileInfo(request, image.Length, signature, pubkeyId, cancellationToken);
 
             _log("[工具] 开始发送数据包");
 
@@ -194,6 +207,60 @@ internal sealed class OtaUploader
             LogSummary("失败", request.FileName, image.Length, localCrc32, exception.Message);
             throw;
         }
+    }
+
+    /// <summary>决定本次会话第 0 包携带的签名与公钥编号。</summary>
+    /// <param name="request">会话输入。</param>
+    /// <param name="image">待发送的裸镜像。</param>
+    /// <returns>64 字节签名（无签名时为 null）与公钥编号。</returns>
+    /// <exception cref="OtaUploadException">预置签名长度非法，或需要本地签名却缺密钥 / 缺版本号。</exception>
+    /// <remarks>
+    /// 优先级：预置签名 → 显式密钥路径 → 程序目录下的默认 <c>signing.key</c> → 未签名。
+    /// 未签名只在开发期（设备侧 REQUIRE=0）成立，量产必须提供密钥，因此这里给一条醒目提示。
+    /// </remarks>
+    private (byte[]? Signature, byte PubkeyId) ResolveSignature(UploadRequest request, byte[] image)
+    {
+        if (request.Signature is not null)
+        {
+            if (request.Signature.Length != FirmwareSigner.SignatureLength)
+            {
+                throw new OtaUploadException(
+                    $"预置签名长度非法：应为 {FirmwareSigner.SignatureLength} 字节，实际 {request.Signature.Length} 字节。");
+            }
+
+            _log($"[工具] 使用预置签名（kid={request.PubkeyId:X2}）");
+            return (request.Signature, request.PubkeyId);
+        }
+
+        string? keyPath = request.SigningKeyPath;
+
+        if (string.IsNullOrEmpty(keyPath))
+        {
+            string defaultPath = Path.Combine(AppContext.BaseDirectory, "signing.key");
+
+            if (File.Exists(defaultPath))
+            {
+                keyPath = defaultPath;
+            }
+        }
+
+        if (keyPath is null)
+        {
+            _log("[工具] 未提供签名密钥，按未签名方式发送第 0 包。" +
+                 "此路径仅开发模式（设备侧 REQUIRE=0）可用，量产必须提供密钥文件 signing.key。");
+            return (null, request.PubkeyId);
+        }
+
+        if (!request.Version.HasValue)
+        {
+            throw new OtaUploadException(
+                "版本号为空，无法签名：版本号参与被签内容，请先在版本框填入（如 0x00010002）。");
+        }
+
+        byte[] signature = FirmwareSigner.Sign(image, request.Version, keyPath);
+        _log($"[工具] 本地签名完成（kid={request.PubkeyId:X2}，密钥 {keyPath}）");
+
+        return (signature, request.PubkeyId);
     }
 
     /// <summary>把设备登记应答里的目标槽与镜像所属槽比对，不一致就当场拒绝。</summary>
@@ -257,9 +324,20 @@ internal sealed class OtaUploader
     /// 设备是在擦除非活动槽**之后**才回 ACK 的（擦 3 个 128 KB 扇区需要可观的
     /// 时间），因此这一段的等待上限必须远大于普通包的应答超时。
     /// </remarks>
-    private void SendFileInfo(UploadRequest request, int imageSize, CancellationToken cancellationToken)
+    private void SendFileInfo(UploadRequest request, int imageSize, byte[]? signature,
+                              byte pubkeyId, CancellationToken cancellationToken)
     {
-        byte[] packet = Ymodem.BuildFileInfoPacket(request.FileName, imageSize, request.Version);
+        byte[] packet = Ymodem.BuildFileInfoPacket(request.FileName, imageSize, request.Version,
+                                                   signature, pubkeyId);
+
+        if (signature is null)
+        {
+            _log("[工具] 第 0 包未携带签名（无 sig=/kid=）。");
+        }
+        else
+        {
+            _log($"[工具] 第 0 包携带 kid={pubkeyId:X2}，本地签名 64 字节。");
+        }
 
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {

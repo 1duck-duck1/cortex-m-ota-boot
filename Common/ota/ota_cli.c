@@ -21,8 +21,7 @@ static const char s_hex_digits[16] = "0123456789ABCDEF";
  */
 static const char *ota_cli_result_name(ota_cli_result_t code)
 {
-    switch (code)
-    {
+    switch (code) {
         case OTA_CLI_ERR_UNKNOWN_COMMAND:
             return "UNKNOWN_COMMAND";
         case OTA_CLI_ERR_BAD_PARAM:
@@ -42,8 +41,7 @@ static const char *ota_cli_result_name(ota_cli_result_t code)
  */
 static void ota_cli_write_text(ota_cli_t *cli, const char *text, uint32_t size)
 {
-    if (cli->write != NULL)
-    {
+    if (cli->write != NULL) {
         cli->write(text, size, cli->write_context);
     }
 }
@@ -59,14 +57,12 @@ static void ota_cli_reply_append(ota_cli_t *cli, const char *text, uint32_t size
     uint32_t capacity = (uint32_t)(OTA_CLI_REPLY_MAX - OTA_CLI_REPLY_RESERVED);
     uint32_t available;
 
-    if (cli->reply_length >= capacity)
-    {
+    if (cli->reply_length >= capacity) {
         return;
     }
 
     available = capacity - cli->reply_length;
-    if (size > available)
-    {
+    if (size > available) {
         size = available;
     }
 
@@ -94,8 +90,7 @@ static void ota_cli_show_help(ota_cli_t *cli)
 {
     uint32_t index;
 
-    for (index = 0u; index < cli->command_count; index++)
-    {
+    for (index = 0u; index < cli->command_count; index++) {
         ota_cli_reply_ok_begin(cli);
         ota_cli_reply_kv_str(cli, "cmd", cli->commands[index].name);
         ota_cli_reply_kv_str(cli, "usage", cli->commands[index].usage);
@@ -114,30 +109,24 @@ static void ota_cli_split(ota_cli_t *cli)
 
     cli->argc = 0u;
 
-    while (cli->line[index] != '\0')
-    {
-        while ((cli->line[index] == ' ') || (cli->line[index] == '\t'))
-        {
+    while (cli->line[index] != '\0') {
+        while ((cli->line[index] == ' ') || (cli->line[index] == '\t')) {
             index++;
         }
-        if (cli->line[index] == '\0')
-        {
+        if (cli->line[index] == '\0') {
             break;
         }
 
-        if (cli->argc < (uint32_t)OTA_CLI_ARG_MAX)
-        {
+        if (cli->argc < (uint32_t)OTA_CLI_ARG_MAX) {
             cli->argv[cli->argc] = &cli->line[index];
             cli->argc++;
         }
 
         while ((cli->line[index] != '\0') &&
-               (cli->line[index] != ' ') && (cli->line[index] != '\t'))
-        {
+               (cli->line[index] != ' ') && (cli->line[index] != '\t')) {
             index++;
         }
-        if (cli->line[index] == '\0')
-        {
+        if (cli->line[index] == '\0') {
             break;
         }
 
@@ -165,28 +154,23 @@ static void ota_cli_execute(ota_cli_t *cli)
 
     ota_cli_split(cli);
 
-    if (cli->argc == 0u)
-    {
+    if (cli->argc == 0u) {
         return;
     }
 
-    if (strcmp(cli->argv[0], "help") == 0)
-    {
+    if (strcmp(cli->argv[0], "help") == 0) {
         ota_cli_show_help(cli);
         return;
     }
 
-    for (index = 0u; index < cli->command_count; index++)
-    {
-        if (strcmp(cli->argv[0], cli->commands[index].name) == 0)
-        {
+    for (index = 0u; index < cli->command_count; index++) {
+        if (strcmp(cli->argv[0], cli->commands[index].name) == 0) {
             command = &cli->commands[index];
             break;
         }
     }
 
-    if (command == NULL)
-    {
+    if (command == NULL) {
         ota_cli_reply_err_begin(cli, OTA_CLI_ERR_UNKNOWN_COMMAND);
         ota_cli_reply_kv_str(cli, "reason", "UNKNOWN_COMMAND");
         ota_cli_reply_end(cli);
@@ -194,8 +178,7 @@ static void ota_cli_execute(ota_cli_t *cli)
     }
 
     result = command->handler((int)cli->argc, cli->argv, cli->handler_context);
-    if ((result != OTA_CLI_OK) && (!cli->is_reply_sent))
-    {
+    if ((result != OTA_CLI_OK) && (!cli->is_reply_sent)) {
         ota_cli_reply_err_begin(cli, result);
         ota_cli_reply_kv_str(cli, "reason", ota_cli_result_name(result));
         ota_cli_reply_end(cli);
@@ -223,53 +206,42 @@ void ota_cli_feed(ota_cli_t *cli, const uint8_t *data, uint32_t size)
     uint32_t index;
     uint8_t byte;
 
-    if ((cli == NULL) || (data == NULL))
-    {
+    if ((cli == NULL) || (data == NULL)) {
         return;
     }
 
-    for (index = 0u; index < size; index++)
-    {
+    for (index = 0u; index < size; index++) {
         byte = data[index];
 
-        if (byte == (uint8_t)'\r')
-        {
+        if (byte == (uint8_t)'\r') {
             ota_cli_write_text(cli, "\r\n", 2u);
-            if (cli->line_length > 0u)
-            {
+            if (cli->line_length > 0u) {
                 ota_cli_execute(cli);
             }
             continue;
         }
-        if (byte == (uint8_t)'\n')
-        {
+        if (byte == (uint8_t)'\n') {
             /* 终端只发 '\n' 时补一次执行；发 "\r\n" 的终端在这里被去重。 */
-            if (cli->line_length > 0u)
-            {
+            if (cli->line_length > 0u) {
                 ota_cli_write_text(cli, "\r\n", 2u);
                 ota_cli_execute(cli);
             }
             continue;
         }
-        if ((byte == (uint8_t)0x08u) || (byte == (uint8_t)0x7Fu))
-        {
-            if (cli->line_length > 0u)
-            {
+        if ((byte == (uint8_t)0x08u) || (byte == (uint8_t)0x7Fu)) {
+            if (cli->line_length > 0u) {
                 cli->line_length--;
                 ota_cli_write_text(cli, "\b \b", 3u);
             }
             continue;
         }
-        if (byte == (uint8_t)0x03u)
-        {
+        if (byte == (uint8_t)0x03u) {
             cli->line_length = 0u;
             ota_cli_write_text(cli, "^C\r\n", 4u);
             continue;
         }
-        if ((byte >= (uint8_t)0x20u) && (byte <= (uint8_t)0x7Eu))
-        {
-            if (cli->line_length < (uint32_t)(OTA_CLI_LINE_MAX - 1u))
-            {
+        if ((byte >= (uint8_t)0x20u) && (byte <= (uint8_t)0x7Eu)) {
+            if (cli->line_length < (uint32_t)(OTA_CLI_LINE_MAX - 1u)) {
                 cli->line[cli->line_length] = (char)byte;
                 cli->line_length++;
                 ota_cli_write_text(cli, (const char *)&byte, 1u);
@@ -287,38 +259,27 @@ bool ota_cli_parse_version(const char *text, uint32_t *version)
     uint32_t digit;
     char current;
 
-    if ((text == NULL) || (version == NULL))
-    {
+    if ((text == NULL) || (version == NULL)) {
         return false;
     }
-    if ((text[0] != '0') || ((text[1] != 'x') && (text[1] != 'X')))
-    {
+    if ((text[0] != '0') || ((text[1] != 'x') && (text[1] != 'X'))) {
         return false;
     }
 
-    while (text[index] != '\0')
-    {
+    while (text[index] != '\0') {
         current = text[index];
 
-        if ((current >= '0') && (current <= '9'))
-        {
+        if ((current >= '0') && (current <= '9')) {
             digit = (uint32_t)(current - '0');
-        }
-        else if ((current >= 'a') && (current <= 'f'))
-        {
+        } else if ((current >= 'a') && (current <= 'f')) {
             digit = (uint32_t)(current - 'a') + 10u;
-        }
-        else if ((current >= 'A') && (current <= 'F'))
-        {
+        } else if ((current >= 'A') && (current <= 'F')) {
             digit = (uint32_t)(current - 'A') + 10u;
-        }
-        else
-        {
+        } else {
             return false;
         }
 
-        if (digits >= OTA_CLI_VERSION_MAX_DIGITS)
-        {
+        if (digits >= OTA_CLI_VERSION_MAX_DIGITS) {
             return false;
         }
 
@@ -327,8 +288,7 @@ bool ota_cli_parse_version(const char *text, uint32_t *version)
         index++;
     }
 
-    if (digits == 0u)
-    {
+    if (digits == 0u) {
         return false;
     }
 
@@ -348,8 +308,7 @@ void ota_cli_reply_err_begin(ota_cli_t *cli, ota_cli_result_t code)
     char text[2];
     uint32_t value = (uint32_t)code;
 
-    if (value > 9u)
-    {
+    if (value > 9u) {
         value = 9u;
     }
 
@@ -375,22 +334,19 @@ void ota_cli_reply_kv_u32(ota_cli_t *cli, const char *key, uint32_t value)
 
     ota_cli_reply_append_key(cli, key);
 
-    if (value == 0u)
-    {
+    if (value == 0u) {
         ota_cli_reply_append(cli, "0", 1u);
         return;
     }
 
-    while ((value > 0u) && (count < (uint32_t)sizeof(digits)))
-    {
+    while ((value > 0u) && (count < (uint32_t)sizeof(digits))) {
         remainder = value % 10u;
         digits[count] = (char)('0' + (char)remainder);
         value /= 10u;
         count++;
     }
 
-    while (count > 0u)
-    {
+    while (count > 0u) {
         count--;
         ota_cli_reply_append(cli, &digits[count], 1u);
     }
@@ -404,8 +360,7 @@ void ota_cli_reply_kv_hex(ota_cli_t *cli, const char *key, uint32_t value)
     ota_cli_reply_append_key(cli, key);
     ota_cli_reply_append(cli, "0x", 2u);
 
-    for (index = 0u; index < 8u; index++)
-    {
+    for (index = 0u; index < 8u; index++) {
         digits[index] = s_hex_digits[(value >> (28u - (index * 4u))) & 0x0Fu];
     }
     ota_cli_reply_append(cli, digits, 8u);

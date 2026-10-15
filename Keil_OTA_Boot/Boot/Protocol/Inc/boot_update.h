@@ -11,9 +11,10 @@
  * 收到的数据一律当作"裸载荷"处理：它从槽首 + 0x200 处开始，镜像头由 Boot
  * 在收尾时补写。这样上位机只需要发一个 .bin，不必理解槽的布局。
  *
- * 线上约定（与配套上位机一致）：第 0 包带文件长度与可选版本号；Boot 校验通过
- * 后先擦槽再回 ACK + 'C'；数据包逐包 ACK；EOT 单次即回 ACK 并进入收尾，
- * 收尾结果通过命令行应答给出，不再走 YMODEM 的第二轮空包握手。
+ * 线上约定（与配套上位机一致）：第 0 包带文件长度、可选版本号与可选签名
+ * （sig=<128 hex> kid=<2 hex>，走 STX/1024 帧）；Boot 校验通过后先擦槽再回
+ * ACK + 'C'；数据包逐包 ACK；EOT 单次即回 ACK 并进入收尾，收尾结果通过命令行
+ * 应答给出，不再走 YMODEM 的第二轮空包握手。
  ******************************************************************************
  */
 #ifndef BOOT_UPDATE_H
@@ -51,6 +52,7 @@ typedef enum
     BOOT_UPDATE_REASON_ERASE_FAILED,    /**< 目标槽擦除失败 */
     BOOT_UPDATE_REASON_WRITE_FAILED,    /**< 写入或补镜像头失败 */
     BOOT_UPDATE_REASON_VERIFY_FAILED,   /**< 回读 CRC32 不符或向量表非法 */
+    BOOT_UPDATE_REASON_SIGNATURE_FAILED,/**< 镜像未带签名，或签名未通过验证 */
     BOOT_UPDATE_REASON_COMMIT_FAILED    /**< Metadata 落盘失败 */
 } boot_update_reason_t;
 
@@ -70,6 +72,10 @@ typedef struct
     uint32_t retry_count;           /**< 当前包连续出错次数 */
     uint32_t image_size;            /**< 最终载荷长度，单位字节 */
     uint32_t image_crc32;           /**< 最终载荷 CRC32 */
+    bool has_signature;             /**< 第 0 包是否带完整 sig= 字段 */
+    uint8_t sig_algorithm;          /**< 签名算法标识，has_signature 时取自 OTA_IMAGE_SIG_* */
+    uint8_t pubkey_id;              /**< 签名所用公钥编号 */
+    uint8_t signature[OTA_IMAGE_SIGNATURE_SIZE];    /**< 第 0 包携带的签名 */
     char file_name[OTA_YMODEM_FILE_NAME_MAX];   /**< 第 0 包声明的文件名，仅供日志 */
     uint32_t c_tick;                /**< 上次发出 'C' 的时刻 */
     uint32_t progress_tick;         /**< 最后一个字节到达的时刻 */

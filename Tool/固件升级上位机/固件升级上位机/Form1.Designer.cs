@@ -52,7 +52,7 @@ namespace 固件升级上位机
             txtVersion = new TextBox();
             btnStart = new Button();
             btnCancel = new Button();
-            progressPanel = new Panel();
+            progressPanel = new TableLayoutPanel();
             lblProgress = new Label();
             progressBar = new ProgressBar();
             txtLog = new TextBox();
@@ -101,7 +101,7 @@ namespace 固件升级上位机
             rootLayout.Name = "rootLayout";
             rootLayout.RowCount = 4;
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 84F));
-            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
+            rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56F));
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 118F));
             rootLayout.Size = new Size(980, 660);
@@ -353,20 +353,27 @@ namespace 固件升级上位机
             // 
             // progressPanel
             // 
-            progressPanel.Controls.Add(lblProgress);
-            progressPanel.Controls.Add(progressBar);
+            progressPanel.ColumnCount = 1;
+            progressPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            progressPanel.Controls.Add(lblProgress, 0, 0);
+            progressPanel.Controls.Add(progressBar, 0, 1);
             progressPanel.Dock = DockStyle.Fill;
             progressPanel.Location = new Point(0, 84);
             progressPanel.Margin = new Padding(0);
             progressPanel.Name = "progressPanel";
-            progressPanel.Size = new Size(980, 52);
+            progressPanel.Padding = new Padding(10, 4, 10, 4);
+            progressPanel.RowCount = 2;
+            progressPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            progressPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 22F));
+            progressPanel.Size = new Size(980, 56);
             progressPanel.TabIndex = 1;
             // 
             // lblProgress
             // 
-            lblProgress.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            lblProgress.Anchor = AnchorStyles.Left | AnchorStyles.Top;
             lblProgress.AutoSize = true;
-            lblProgress.Location = new Point(10, 6);
+            lblProgress.Location = new Point(10, 4);
+            lblProgress.Margin = new Padding(0, 0, 0, 2);
             lblProgress.Name = "lblProgress";
             lblProgress.Size = new Size(44, 17);
             lblProgress.TabIndex = 0;
@@ -374,7 +381,7 @@ namespace 固件升级上位机
             // 
             // progressBar
             // 
-            progressBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            progressBar.Dock = DockStyle.Fill;
             progressBar.Location = new Point(10, 26);
             progressBar.Margin = new Padding(0);
             progressBar.Name = "progressBar";
@@ -746,7 +753,7 @@ namespace 固件升级上位机
         private TextBox txtVersion;
         private Button btnStart;
         private Button btnCancel;
-        private Panel progressPanel;
+        private TableLayoutPanel progressPanel;
         private Label lblProgress;
         private ProgressBar progressBar;
         private TextBox txtLog;

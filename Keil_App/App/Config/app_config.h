@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-/** 应用槽位配置 */
+/** Slot A 起始地址 */
 #define APP_SLOT_A_BASE       (0x08020000u)
 /** Slot B 起始地址 */
 #define APP_SLOT_B_BASE       (0x08080000u)
@@ -27,18 +27,23 @@
 #define APP_RAM_BASE          (0x20000000u)
 #define APP_RAM_END           (0x20020000u)
 
-/** 应用邮箱配置 */
+/** 应用邮箱基址，SRAM2 顶部 32 字节 */
 #define APP_MAILBOX_ADDR      (0x2001FFE0u)
 
-#define APP_MAILBOX_MAGIC     (0x424F4F54u)
 /** 应用邮箱魔数，ASCII "BOOT" */
-#define APP_MAGIC_REQUEST     (0x52455142u)
+#define APP_MAILBOX_MAGIC     (0x424F4F54u)
 /** 应用邮箱请求标志，ASCII "REQB" */
+#define APP_MAGIC_REQUEST     (0x52455142u)
+/** 应用邮箱确认标志，ASCII "CONF" */
 #define APP_MAGIC_CONFIRM     (0x434F4E46u)
 
+/** Slot A 的编号 */
 #define APP_SLOT_ID_A         (0u)
+/** Slot B 的编号 */
 #define APP_SLOT_ID_B         (1u)
+/** 无槽哨兵，表示未启动或未知槽 */
 #define APP_SLOT_ID_NONE      (0xFFFFFFFFu)
+/** 邮箱标志位：本次启动的镜像是 Pending 试运行镜像 */
 #define APP_MAILBOX_FLAG_PENDING_LAUNCH (1u << 0)
 
 #if defined(APP_SLOT_B)

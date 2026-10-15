@@ -28,6 +28,7 @@ typedef enum
     BOOT_NVS_RESULT_RANGE,          /**< 声明的长度越出槽容量 */
     BOOT_NVS_RESULT_CRC_MISMATCH,   /**< 槽内载荷 CRC32 与声明不符 */
     BOOT_NVS_RESULT_VECTOR_INVALID, /**< 向量表首两项非法，镜像跑不起来 */
+    BOOT_NVS_RESULT_SIGNATURE_INVALID, /**< 签名缺失或未通过内建公钥验证 */
     BOOT_NVS_RESULT_HEADER_FAILED,  /**< 镜像头缺失且补写失败 */
     BOOT_NVS_RESULT_COMMIT_FAILED,  /**< Metadata 落盘失败 */
     BOOT_NVS_RESULT_APPLIED         /**< 已提交 pending，可以重启进入试运行 */

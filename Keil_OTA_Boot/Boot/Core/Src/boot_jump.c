@@ -21,8 +21,7 @@ bool boot_jump_vector(uint32_t slot_id, uint32_t image_size, boot_jump_vector_t 
     uint32_t sp = 0u;
     uint32_t pc = 0u;
 
-    if ((base == 0u) || (vector == NULL) || (image_size == 0u))
-    {
+    if ((base == 0u) || (vector == NULL) || (image_size == 0u)) {
         return false;
     }
 
@@ -30,8 +29,7 @@ bool boot_jump_vector(uint32_t slot_id, uint32_t image_size, boot_jump_vector_t 
                                  base,
                                  image_size,
                                  &sp,
-                                 &pc))
-    {
+                                 &pc)) {
         return false;
     }
 
@@ -46,8 +44,7 @@ void boot_jump_to(const boot_jump_vector_t *vector)
 {
     uint32_t index;
 
-    if (vector == NULL)
-    {
+    if (vector == NULL) {
         boot_jump_restart();
         return;
     }
@@ -56,8 +53,7 @@ void boot_jump_to(const boot_jump_vector_t *vector)
        带着它跳过去，App 一开中断就会跑进 Boot 的向量表。 */
     __disable_irq();
 
-    for (index = 0u; index < BOOT_NVIC_REGISTER_COUNT; index++)
-    {
+    for (index = 0u; index < BOOT_NVIC_REGISTER_COUNT; index++) {
         NVIC->ICER[index] = 0xFFFFFFFFu;
         NVIC->ICPR[index] = 0xFFFFFFFFu;
     }
@@ -79,8 +75,7 @@ void boot_jump_to(const boot_jump_vector_t *vector)
     ((void (*)(void))vector->pc)();
 
     /* 目标镜像的复位入口正常不会返回。 */
-    for (;;)
-    {
+    for (;;) {
     }
 }
 
@@ -90,7 +85,6 @@ void boot_jump_restart(void)
     NVIC_SystemReset();
 
     /* NVIC_SystemReset() 正常不会返回。 */
-    for (;;)
-    {
+    for (;;) {
     }
 }

@@ -30,7 +30,10 @@ void ota_image_header_fill(ota_image_header_t *header,
                            uint16_t hw_id,
                            uint32_t version,
                            uint32_t image_size,
-                           uint32_t payload_crc32)
+                           uint32_t payload_crc32,
+                           uint8_t sig_algorithm,
+                           uint8_t pubkey_id,
+                           const uint8_t *signature)
 {
     uint32_t index;
 
@@ -44,10 +47,25 @@ void ota_image_header_fill(ota_image_header_t *header,
     header->version = version;
     header->header_crc32 = 0u;
 
-    for (index = 0u; index < 4u; index++)
-    {
-        header->reserved[index] = 0u;
+    /* 未签名是"清零 + 置 NONE"，避免调用方漏填时把 0xFF 残留当成有效签名。 */
+    if (signature == NULL) {
+        header->sig_algorithm = OTA_IMAGE_SIG_NONE;
+        header->pubkey_id = 0u;
+        for (index = 0u; index < OTA_IMAGE_SIGNATURE_SIZE; index++) {
+            header->signature[index] = 0u;
+        }
+    } else {
+        header->sig_algorithm = sig_algorithm;
+        header->pubkey_id = pubkey_id;
+        for (index = 0u; index < OTA_IMAGE_SIGNATURE_SIZE; index++) {
+            header->signature[index] = signature[index];
+        }
     }
+
+    header->reserved0[0] = 0u;
+    header->reserved0[1] = 0u;
+    header->reserved1[0] = 0u;
+    header->reserved1[1] = 0u;
 
     /* 头 CRC32 必须最后算、最后写：掉电落在这一步之前，头就是无效的。 */
     header->header_crc32 = ota_image_header_crc(header);
@@ -55,37 +73,29 @@ void ota_image_header_fill(ota_image_header_t *header,
 
 bool ota_image_header_verify(const ota_image_header_t *header, uint32_t slot_size)
 {
-    if (header->magic != OTA_IMAGE_MAGIC)
-    {
+    if (header->magic != OTA_IMAGE_MAGIC) {
         return false;
     }
-    if (header->hw_id != OTA_IMAGE_HW_ID)
-    {
+    if (header->hw_id != OTA_IMAGE_HW_ID) {
         return false;
     }
-    if (header->header_version != OTA_IMAGE_HEADER_VERSION)
-    {
+    if (header->header_version != OTA_IMAGE_HEADER_VERSION) {
         return false;
     }
-    if (header->header_size != OTA_IMAGE_HEADER_SIZE)
-    {
+    if (header->header_size != OTA_IMAGE_HEADER_SIZE) {
         return false;
     }
-    if (header->load_offset != OTA_IMAGE_LOAD_OFFSET)
-    {
+    if (header->load_offset != OTA_IMAGE_LOAD_OFFSET) {
         return false;
     }
-    if (slot_size <= OTA_IMAGE_LOAD_OFFSET)
-    {
+    if (slot_size <= OTA_IMAGE_LOAD_OFFSET) {
         return false;
     }
     if ((header->image_size == 0u) ||
-        (header->image_size > (slot_size - OTA_IMAGE_LOAD_OFFSET)))
-    {
+        (header->image_size > (slot_size - OTA_IMAGE_LOAD_OFFSET))) {
         return false;
     }
-    if (header->header_crc32 != ota_image_header_crc(header))
-    {
+    if (header->header_crc32 != ota_image_header_crc(header)) {
         return false;
     }
 

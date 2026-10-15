@@ -23,8 +23,7 @@ uint32_t ota_crc32_update(uint32_t crc, const uint8_t *data, uint32_t size)
     uint32_t index;
     uint32_t value;
 
-    for (index = 0u; index < size; index++)
-    {
+    for (index = 0u; index < size; index++) {
         value = crc ^ (uint32_t)data[index];
         crc = (value >> 4u) ^ s_crc32_nibble_table[value & 0x0Fu];
         crc = (crc >> 4u) ^ s_crc32_nibble_table[crc & 0x0Fu];

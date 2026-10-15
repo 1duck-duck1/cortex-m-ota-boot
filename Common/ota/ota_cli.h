@@ -29,10 +29,10 @@
 /** 命令处理结果，同时作为 ERR 应答里的错误码 */
 typedef enum
 {
-    OTA_CLI_OK = 0,                 /**< 处理成功 */
-    OTA_CLI_ERR_UNKNOWN_COMMAND = 1,/**< 命令词未被注册 */
-    OTA_CLI_ERR_BAD_PARAM = 2,      /**< 参数个数或取值非法，设备不接受本次声明 */
-    OTA_CLI_ERR_FAILED = 3          /**< 参数合法但执行失败，多为 Flash 或链路异常 */
+    OTA_CLI_OK = 0,                  /**< 处理成功 */
+    OTA_CLI_ERR_UNKNOWN_COMMAND = 1, /**< 命令词未被注册 */
+    OTA_CLI_ERR_BAD_PARAM = 2,       /**< 参数个数或取值非法，设备不接受本次声明 */
+    OTA_CLI_ERR_FAILED = 3           /**< 参数合法但执行失败，多为 Flash 或链路异常 */
 } ota_cli_result_t;
 
 /**

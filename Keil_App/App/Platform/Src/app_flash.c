@@ -18,12 +18,10 @@
 
 uint32_t app_flash_slot_base(uint32_t slot_id)
 {
-    if (slot_id == APP_SLOT_ID_A)
-    {
+    if (slot_id == APP_SLOT_ID_A) {
         return APP_SLOT_A_BASE;
     }
-    if (slot_id == APP_SLOT_ID_B)
-    {
+    if (slot_id == APP_SLOT_ID_B) {
         return APP_SLOT_B_BASE;
     }
     return 0u;
@@ -31,8 +29,7 @@ uint32_t app_flash_slot_base(uint32_t slot_id)
 
 uint32_t app_flash_slot_size(uint32_t slot_id)
 {
-    if ((slot_id == APP_SLOT_ID_A) || (slot_id == APP_SLOT_ID_B))
-    {
+    if ((slot_id == APP_SLOT_ID_A) || (slot_id == APP_SLOT_ID_B)) {
         return APP_SLOT_SIZE;
     }
     return 0u;
@@ -42,18 +39,15 @@ bool app_flash_range_valid(uint32_t address, uint32_t size)
 {
     uint32_t base;
 
-    if (size == 0u)
-    {
+    if (size == 0u) {
         return false;
     }
-    if (size > (UINT32_MAX - address))
-    {
+    if (size > (UINT32_MAX - address)) {
         return false;   /* 地址加长度溢出，必须先挡住再比较区间 */
     }
 
     base = app_flash_slot_base(APP_SLOT_ID_A);
-    if ((address >= base) && ((address + size) <= (base + APP_SLOT_SIZE)))
-    {
+    if ((address >= base) && ((address + size) <= (base + APP_SLOT_SIZE))) {
         return true;
     }
     base = app_flash_slot_base(APP_SLOT_ID_B);
@@ -69,8 +63,7 @@ bool app_flash_range_valid(uint32_t address, uint32_t size)
  */
 static bool app_flash_nvs_range_valid(uint32_t offset, uint32_t size)
 {
-    if ((size == 0u) || (size > APP_DATA_SIZE))
-    {
+    if ((size == 0u) || (size > APP_DATA_SIZE)) {
         return false;
     }
     return offset <= (APP_DATA_SIZE - size);
@@ -88,27 +81,23 @@ static bool app_flash_program_words(uint32_t address,
     uint32_t i;
 
     if ((data == NULL) || ((address & 3u) != 0u) ||
-        (size > (UINT32_MAX - address)))
-    {
+        (size > (UINT32_MAX - address))) {
         return false;
     }
 
     HAL_FLASH_Unlock();
-    while (index < size)
-    {
+    while (index < size) {
         uint32_t word = 0xFFFFFFFFu;
         uint32_t remaining = size - index;
         uint32_t copy_size = (remaining < 4u) ? remaining : 4u;
 
-        for (i = 0u; i < copy_size; i++)
-        {
+        for (i = 0u; i < copy_size; i++) {
             word &= ~(0xFFu << (8u * i));
             word |= ((uint32_t)data[index + i]) << (8u * i);
         }
 
         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address + index, word) !=
-            HAL_OK)
-        {
+            HAL_OK) {
             HAL_FLASH_Lock();
             return false;
         }
@@ -144,12 +133,10 @@ static bool app_flash_erase_sectors(uint32_t sector, uint32_t sector_count)
 
 bool app_flash_erase_slot(uint32_t slot_id)
 {
-    if (slot_id == APP_SLOT_ID_A)
-    {
+    if (slot_id == APP_SLOT_ID_A) {
         return app_flash_erase_sectors(FLASH_SECTOR_5, APP_SLOT_SECTOR_COUNT);
     }
-    if (slot_id == APP_SLOT_ID_B)
-    {
+    if (slot_id == APP_SLOT_ID_B) {
         return app_flash_erase_sectors(FLASH_SECTOR_8, APP_SLOT_SECTOR_COUNT);
     }
     return false;
@@ -158,8 +145,7 @@ bool app_flash_erase_slot(uint32_t slot_id)
 bool app_flash_write(uint32_t address, const uint8_t *data, uint32_t size)
 {
     if ((data == NULL) || ((address & 3u) != 0u) ||
-        !app_flash_range_valid(address, size))
-    {
+        !app_flash_range_valid(address, size)) {
         return false;
     }
 
@@ -170,13 +156,11 @@ bool app_flash_read(uint32_t address, uint8_t *data, uint32_t size)
 {
     uint32_t index;
 
-    if ((data == NULL) || !app_flash_range_valid(address, size))
-    {
+    if ((data == NULL) || !app_flash_range_valid(address, size)) {
         return false;
     }
 
-    for (index = 0u; index < size; index++)
-    {
+    for (index = 0u; index < size; index++) {
         data[index] = *(volatile uint8_t *)(address + index);
     }
 
@@ -191,8 +175,7 @@ bool app_flash_erase_nvs(void)
 bool app_flash_write_nvs(uint32_t offset, const uint8_t *data, uint32_t size)
 {
     if ((data == NULL) || ((offset & 3u) != 0u) ||
-        !app_flash_nvs_range_valid(offset, size))
-    {
+        !app_flash_nvs_range_valid(offset, size)) {
         return false;
     }
 
@@ -203,13 +186,11 @@ bool app_flash_read_nvs(uint32_t offset, uint8_t *data, uint32_t size)
 {
     uint32_t index;
 
-    if ((data == NULL) || !app_flash_nvs_range_valid(offset, size))
-    {
+    if ((data == NULL) || !app_flash_nvs_range_valid(offset, size)) {
         return false;
     }
 
-    for (index = 0u; index < size; index++)
-    {
+    for (index = 0u; index < size; index++) {
         data[index] = *(volatile uint8_t *)(APP_DATA_ADDR + offset + index);
     }
 

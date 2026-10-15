@@ -191,7 +191,7 @@
             <hadIRAM2>1</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
-            <useUlib>0</useUlib>
+            <useUlib>1</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
             <nSecure>0</nSecure>
@@ -315,7 +315,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>4</Optim>
+            <Optim>3</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -341,7 +341,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Boot/Config;../Boot/Core/Inc;../Boot/Storage/Inc;../Boot/Mailbox/Inc;../Boot/Protocol/Inc;../../Common/ota</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Boot/Config;../Boot/Core/Inc;../Boot/Storage/Inc;../Boot/Mailbox/Inc;../Boot/Protocol/Inc;../Boot/Crypto/Inc;../Boot/Crypto/monocypher;../../Common/ota</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1902,6 +1902,36 @@
               <FileName>boot_update.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Boot/Protocol/Src/boot_update.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Boot/Crypto</GroupName>
+          <Files>
+            <File>
+              <FileName>boot_pubkey.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Boot/Crypto/Src/boot_pubkey.c</FilePath>
+            </File>
+            <File>
+              <FileName>boot_verify.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Boot/Crypto/Src/boot_verify.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Boot/Crypto/Monocypher</GroupName>
+          <Files>
+            <File>
+              <FileName>monocypher.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Boot/Crypto/monocypher/monocypher.c</FilePath>
+            </File>
+            <File>
+              <FileName>monocypher-ed25519.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Boot/Crypto/monocypher/monocypher-ed25519.c</FilePath>
             </File>
           </Files>
         </Group>

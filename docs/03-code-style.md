@@ -31,29 +31,36 @@ Keil_OTA_Boot/
 ├── Core/                    CubeMX 生成：入口 main.c、时钟、中断
 ├── Drivers/                 CubeMX 管理：HAL + CMSIS
 ├── Boot/                    ★ Bootloader 业务代码（只进 Boot target）
-│   ├── boot_conf.h          分区表 / 魔数 / 阈值——唯一事实来源
-│   ├── boot_flag.c/.h       备份寄存器标志（跨复位通信）
-│   ├── boot_jump.c/.h       校验 + 剥离环境 + 跳转
-│   └── boot_main.c/.h       主流程 boot_run()
-├── App/                     ★ App 侧代码（只进 fake_app target）
-│   ├── app_main.c           fake_app 入口
-│   └── boot_client.c/.h     App 调用 Boot 约定的最小库
-└── MDK-ARM/                 Keil 工程与双 target（Keil_OTA_Boot / fake_app）
+│   ├── Config/              boot_conf.h（分区表 / 魔数 / 阈值——唯一事实来源）· boot_types.h
+│   ├── Core/                boot_main.c（主流程）· boot_jump.c（校验 + 剥离环境 + 跳转）
+│   ├── Mailbox/             boot_mailbox.c/.h（.noinit SRAM 跨复位邮箱）
+│   ├── Storage/             boot_flash · boot_image · boot_metadata · boot_nvs · boot_slot_writer · boot_adopt
+│   └── Protocol/            boot_update（OTA 接收状态机）· boot_transport · boot_cli
+└── MDK-ARM/                 Keil 工程（Keil_OTA_Boot target）
+
+Keil_App/                      应用工程（链接到 Slot A）
+├── Core/                    CubeMX 生成（USART1/2 · TIM2）
+├── Drivers/                 ST 官方代码（HAL + CMSIS）
+├── App/                     ★ App 侧业务代码（Config / Platform / Services / BootClient）
+└── MDK-ARM/                 工程文件 + 链接脚本（0x08020200 起）
+
+Common/ota/                    Boot 与 App 共享的硬件无关模块
+└── ota_ymodem.c/.h · ota_cli.c/.h · ota_crc32.c/.h · ota_image.c/.h · ota_request.c/.h
 ```
 
-**职责边界**：`Core/Src/main.c` 的 USER CODE 区只允许一行 `boot_run()` 调用；所有业务逻辑在 `Boot/`。跳转类代码（改 MSP、改 VTOR）只允许出现在 `Boot/boot_jump.c`。
+**职责边界**：`Core/Src/main.c` 的 USER CODE 区只允许一行 `boot_run()` 调用；所有业务逻辑在 `Boot/`。跳转类代码（改 MSP、改 VTOR）只允许出现在 `Boot/Core/boot_jump.c`。
 
 ## 🏷️ 2. 命名规则
 
 | 对象 | 规则 | 示例 |
 |---|---|---|
-| 文件 | 全小写 + 下划线，模块前缀开头 | `boot_flag.c` |
+| 文件 | 全小写 + 下划线，模块前缀开头 | `boot_mailbox.c` |
 | 函数 | `模块_动词`，小写下划线 | `boot_jump_slot()` |
 | 静态函数 | 同上（靠 `static` 区分，不加 `s_` 前缀） | `vector_table_valid()` |
 | 类型 | 小写下划线 + `_t` 后缀 | `boot_mcu_t` |
 | 宏 / 常量 | `BOOT_` 前缀 + 全大写 | `BOOT_SLOT_A_ADDR` |
 | 魔数 | 一律定义在 `boot_conf.h`，带注释说明含义 | `BOOT_MAGIC_REQUEST` |
-| 头文件保护伞 | 文件名全大写 + `_H` | `BOOT_FLAG_H` |
+| 头文件保护伞 | 文件名全大写 + `_H` | `BOOT_MAILBOX_H` |
 
 **前缀语义**：`boot_` = Bootloader 侧；`app_` / `boot_client_` = App 侧。两侧代码物理隔离（不同 target），前缀用于防止将来共享代码时命名冲突。
 

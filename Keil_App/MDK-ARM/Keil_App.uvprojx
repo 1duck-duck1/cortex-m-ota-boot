@@ -341,7 +341,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx,APP_SLOT_A</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../App/Config;../App/Boot/Inc;../App/Platform/Inc;../App/Services/Inc;../../Common/ota;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include</IncludePath>
+              <IncludePath>../Core/Inc;../App/Config;../App/BootClient/Inc;../App/Platform/Inc;../App/Services/Inc;../../Common/ota;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1959,12 +1959,12 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>App/Boot</GroupName>
+          <GroupName>App/BootClient</GroupName>
           <Files>
             <File>
               <FileName>app_boot_client.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../App/Boot/Src/app_boot_client.c</FilePath>
+              <FilePath>../App/BootClient/Src/app_boot_client.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -2374,7 +2374,7 @@
               <MiscControls>-DAPP_SLOT_B</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../App/Config;../App/Boot/Inc;../App/Platform/Inc;../App/Services/Inc;../../Common/ota;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include</IncludePath>
+              <IncludePath>../Core/Inc;../App/Config;../App/BootClient/Inc;../App/Platform/Inc;../App/Services/Inc;../../Common/ota;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -2561,12 +2561,12 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>App/Boot</GroupName>
+          <GroupName>App/BootClient</GroupName>
           <Files>
             <File>
               <FileName>app_boot_client.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../App/Boot/Src/app_boot_client.c</FilePath>
+              <FilePath>../App/BootClient/Src/app_boot_client.c</FilePath>
             </File>
           </Files>
         </Group>

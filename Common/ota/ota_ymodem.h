@@ -13,6 +13,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ota_image.h"
+
 #define OTA_YMODEM_SOH              (0x01u)   /* 128 字节数据包的帧首 */
 #define OTA_YMODEM_STX              (0x02u)   /* 1024 字节数据包的帧首 */
 #define OTA_YMODEM_EOT              (0x04u)   /* 传输结束 */
@@ -35,6 +37,9 @@
 
 /** 连续多少个 CAN 才判定为对端主动中止 */
 #define OTA_YMODEM_CAN_THRESHOLD    (2u)
+
+/** sig= 字段的十六进制字符数，64 字节签名展开为 128 个字符 */
+#define OTA_YMODEM_SIGNATURE_HEX_LEN   (OTA_IMAGE_SIGNATURE_SIZE * 2u)
 
 /** 组帧结果，每一个非 NONE 事件都代表"有进展"，是超时计时的基准 */
 typedef enum
@@ -84,6 +89,10 @@ typedef struct
     uint32_t file_size;                         /**< 文件长度，单位字节 */
     bool has_version;                           /**< 第二个字段里是否声明了版本号 */
     uint32_t version;                           /**< 版本号，has_version 为 true 时有效 */
+    bool has_signature;                         /**< 第二个字段里是否带完整 sig= 字段 */
+    uint8_t pubkey_id;                          /**< kid= 解析出的公钥编号 */
+    uint8_t sig_algorithm;                      /**< 签名算法标识，has_signature 时取自 OTA_IMAGE_SIG_* */
+    uint8_t signature[OTA_IMAGE_SIGNATURE_SIZE];/**< sig= 解析出的签名，has_signature 为 false 时全 0 */
     char file_name[OTA_YMODEM_FILE_NAME_MAX];   /**< 文件名，仅用于日志 */
 } ota_ymodem_file_info_t;
 
@@ -112,8 +121,10 @@ ota_ymodem_event_t ota_ymodem_rx_feed(ota_ymodem_rx_t *rx, uint8_t byte);
  * @param  info 解析结果
  * @return true 表示格式合法
  * @retval false 缺少文件名或长度字段，或长度为 0
- * @note   第二字段形如 "<长度> [修改时间] [0x版本号]"。版本号必须带 0x 前缀才被
- *         认作版本，否则与标准 mtime 无法区分，一律忽略。
+ * @note   第二字段形如 "<长度> [修改时间] [0x版本号] [sig=<128 hex>] [kid=<2 hex>]"。
+ *         版本号必须带 0x 前缀才被认作版本，否则与标准 mtime 无法区分，一律忽略；
+ *         sig= 必须是恰好 OTA_YMODEM_SIGNATURE_HEX_LEN 个十六进制字符，kid= 为 1~2
+ *         位十六进制。任何一项格式非法都只忽略该项，不影响长度与文件名的解析。
  */
 bool ota_ymodem_parse_file_info(const uint8_t *data,
                                 uint32_t size,

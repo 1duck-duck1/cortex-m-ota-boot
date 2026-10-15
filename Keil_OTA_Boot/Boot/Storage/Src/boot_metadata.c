@@ -6,10 +6,10 @@
  */
 #include "boot_metadata.h"
 
-#include <string.h>
-
 #include "boot_flash.h"
 #include "ota_crc32.h"
+
+#include <string.h>
 
 /** 参与 crc32 计算的字节数：整条记录去掉末尾的 crc32 字段 */
 #define BOOT_METADATA_CRC_SPAN     ((uint32_t)(sizeof(boot_metadata_t) - 4u))
@@ -31,32 +31,27 @@ static uint32_t boot_metadata_crc(const boot_metadata_t *metadata)
  */
 static bool boot_metadata_verify(const boot_metadata_t *metadata)
 {
-    if (metadata->magic != BOOT_METADATA_MAGIC)
-    {
+    if (metadata->magic != BOOT_METADATA_MAGIC) {
         return false;
     }
 
     /* active 只允许是具体槽或 NONE；pending 同理，且不允许等于 active。 */
     if ((metadata->active_slot != BOOT_SLOT_ID_A) &&
         (metadata->active_slot != BOOT_SLOT_ID_B) &&
-        (metadata->active_slot != BOOT_SLOT_ID_NONE))
-    {
+        (metadata->active_slot != BOOT_SLOT_ID_NONE)) {
         return false;
     }
     if ((metadata->pending_slot != BOOT_SLOT_ID_A) &&
         (metadata->pending_slot != BOOT_SLOT_ID_B) &&
-        (metadata->pending_slot != BOOT_SLOT_ID_NONE))
-    {
+        (metadata->pending_slot != BOOT_SLOT_ID_NONE)) {
         return false;
     }
-    if (metadata->pending_slot == metadata->active_slot)
-    {
+    if (metadata->pending_slot == metadata->active_slot) {
         return false;
     }
 
     if ((metadata->max_attempts == 0u) ||
-        (metadata->boot_attempts > metadata->max_attempts))
-    {
+        (metadata->boot_attempts > metadata->max_attempts)) {
         return false;
     }
 
@@ -76,26 +71,19 @@ static bool boot_metadata_read_copy(uint32_t copy_index, boot_metadata_t *metada
 
     (void)memset(metadata, 0, sizeof(*metadata));
 
-    if (copy_index == 0u)
-    {
+    if (copy_index == 0u) {
         address = BOOT_METADATA_A_ADDR;
-    }
-    else if (copy_index == 1u)
-    {
+    } else if (copy_index == 1u) {
         address = BOOT_METADATA_B_ADDR;
-    }
-    else
-    {
+    } else {
         return false;
     }
 
-    if (!boot_flash_read(address, (uint8_t *)metadata, (uint32_t)sizeof(*metadata)))
-    {
+    if (!boot_flash_read(address, (uint8_t *)metadata, (uint32_t)sizeof(*metadata))) {
         return false;
     }
 
-    if (!boot_metadata_verify(metadata))
-    {
+    if (!boot_metadata_verify(metadata)) {
         (void)memset(metadata, 0, sizeof(*metadata));
         return false;
     }
@@ -110,27 +98,23 @@ bool boot_metadata_load(boot_metadata_t *metadata)
     bool valid_a;
     bool valid_b;
 
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
 
     valid_a = boot_metadata_read_copy(0u, &copy_a);
     valid_b = boot_metadata_read_copy(1u, &copy_b);
 
-    if (valid_a && valid_b)
-    {
+    if (valid_a && valid_b) {
         /* 两份都自洽时取序号大的；序号相同说明写入侧出了问题，取 A 保守处理。 */
         *metadata = (copy_a.sequence >= copy_b.sequence) ? copy_a : copy_b;
         return true;
     }
-    if (valid_a)
-    {
+    if (valid_a) {
         *metadata = copy_a;
         return true;
     }
-    if (valid_b)
-    {
+    if (valid_b) {
         *metadata = copy_b;
         return true;
     }
@@ -153,8 +137,7 @@ bool boot_metadata_save(const boot_metadata_t *metadata)
     uint32_t target;
     bool written;
 
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
 
@@ -166,36 +149,28 @@ bool boot_metadata_save(const boot_metadata_t *metadata)
     sequence_b = (valid_b != 0u) ? copy_b.sequence : 0u;
 
     /* 只写序号较小的那份，把最新的一份完整留在盘上。 */
-    if (valid_a == 0u)
-    {
+    if (valid_a == 0u) {
         target = 0u;
-    }
-    else if (valid_b == 0u)
-    {
+    } else if (valid_b == 0u) {
         target = 1u;
-    }
-    else
-    {
+    } else {
         target = (sequence_a <= sequence_b) ? 0u : 1u;
     }
 
     max_sequence = (sequence_a > sequence_b) ? sequence_a : sequence_b;
-    if (max_sequence == 0xFFFFFFFFu)
-    {
+    if (max_sequence == 0xFFFFFFFFu) {
         max_sequence = 0u;
     }
 
     record = *metadata;
     record.magic = BOOT_METADATA_MAGIC;
     record.sequence = max_sequence + 1u;
-    if (record.reserved != 0u)
-    {
+    if (record.reserved != 0u) {
         record.reserved = 0u;
     }
     record.crc32 = boot_metadata_crc(&record);
 
-    if (!boot_flash_write_metadata(target, &record, (uint32_t)sizeof(record)))
-    {
+    if (!boot_flash_write_metadata(target, &record, (uint32_t)sizeof(record))) {
         return false;
     }
 
@@ -207,8 +182,7 @@ bool boot_metadata_save(const boot_metadata_t *metadata)
 
 void boot_metadata_defaults(boot_metadata_t *metadata)
 {
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return;
     }
 
@@ -225,16 +199,13 @@ void boot_metadata_defaults(boot_metadata_t *metadata)
 
 bool boot_metadata_mark_pending(boot_metadata_t *metadata, uint32_t slot_id)
 {
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
-    if ((slot_id != BOOT_SLOT_ID_A) && (slot_id != BOOT_SLOT_ID_B))
-    {
+    if ((slot_id != BOOT_SLOT_ID_A) && (slot_id != BOOT_SLOT_ID_B)) {
         return false;
     }
-    if (metadata->pending_slot == slot_id)
-    {
+    if (metadata->pending_slot == slot_id) {
         return false;
     }
 
@@ -246,13 +217,11 @@ bool boot_metadata_mark_pending(boot_metadata_t *metadata, uint32_t slot_id)
 
 bool boot_metadata_confirm(boot_metadata_t *metadata)
 {
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
     if ((metadata->pending_slot != BOOT_SLOT_ID_A) &&
-        (metadata->pending_slot != BOOT_SLOT_ID_B))
-    {
+        (metadata->pending_slot != BOOT_SLOT_ID_B)) {
         return false;
     }
 
@@ -265,13 +234,11 @@ bool boot_metadata_confirm(boot_metadata_t *metadata)
 
 bool boot_metadata_clear_pending(boot_metadata_t *metadata)
 {
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
     if ((metadata->pending_slot == BOOT_SLOT_ID_NONE) &&
-        (metadata->boot_attempts == 0u))
-    {
+        (metadata->boot_attempts == 0u)) {
         return false;
     }
 
@@ -283,12 +250,10 @@ bool boot_metadata_clear_pending(boot_metadata_t *metadata)
 
 bool boot_metadata_set_attempts(boot_metadata_t *metadata, uint32_t attempts)
 {
-    if (metadata == NULL)
-    {
+    if (metadata == NULL) {
         return false;
     }
-    if (metadata->boot_attempts == attempts)
-    {
+    if (metadata->boot_attempts == attempts) {
         return false;
     }
 

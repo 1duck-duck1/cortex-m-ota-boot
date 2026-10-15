@@ -30,6 +30,7 @@ typedef enum
     BOOT_ADOPT_ERR_SLOT,        /**< 槽编号非法 */
     BOOT_ADOPT_ERR_PROTECTED,   /**< 目标槽是受保护槽 */
     BOOT_ADOPT_ERR_VERSION,     /**< 版本号缺失或非法 */
+    BOOT_ADOPT_ERR_SIGNATURE,   /**< 量产模式要求签名，而本通道无法生成签名 */
     BOOT_ADOPT_ERR_HEADER,      /**< 头区已被写过，必须整槽重传 */
     BOOT_ADOPT_ERR_NO_IMAGE,    /**< 槽里没有可识别的镜像 */
     BOOT_ADOPT_ERR_FAILED       /**< 补头或 Metadata 落盘失败 */
@@ -54,6 +55,9 @@ typedef struct
  * @return 处理结论
  * @note   调用方必须保证当前处于升级模式：本函数只看几何与内容，不看启动状态，
  *         在正常运行路径上调用它会把一份未经传输校验的镜像扶正。
+ *         BOOT_REQUIRE_SIGNATURE=1（量产）时本通道直接返回
+ *         BOOT_ADOPT_ERR_SIGNATURE：设备没有私钥，无法为 Keil 直烧的槽补签名，
+ *         这是刻意为之，开发调试请在 BOOT_REQUIRE_SIGNATURE=0 的构建上进行。
  */
 boot_adopt_result_t boot_adopt_slot(uint32_t slot_id,
                                     uint32_t protected_slot,

@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="10.0.0" />
+    <!-- Ed25519 签名（FirmwareSigner）依赖；只用到 Ed25519 签名与密钥参数，不含加密 -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
   </ItemGroup>
 
 </Project>

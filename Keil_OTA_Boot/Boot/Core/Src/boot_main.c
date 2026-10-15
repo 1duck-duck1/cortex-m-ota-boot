@@ -6,8 +6,6 @@
  */
 #include "boot_main.h"
 
-#include <string.h>
-
 #include "boot_cli.h"
 #include "boot_conf.h"
 #include "boot_flash.h"
@@ -19,6 +17,8 @@
 #include "boot_types.h"
 #include "boot_update.h"
 #include "ota_cli.h"
+
+#include <string.h>
 
 /* 这些都是"整个升级模式生命周期都要存在"的对象，放静态区：update 里的
    YMODEM 组帧缓冲有 1 KB，cli 的行缓冲与应答缓冲加起来接近 300 字节，
@@ -43,16 +43,13 @@ static boot_image_t s_chosen;
  */
 static uint32_t boot_main_protected_slot(const boot_metadata_t *metadata, uint32_t running_slot)
 {
-    if (running_slot != BOOT_SLOT_ID_NONE)
-    {
+    if (running_slot != BOOT_SLOT_ID_NONE) {
         return running_slot;
     }
-    if (metadata->active_slot == BOOT_SLOT_ID_NONE)
-    {
+    if (metadata->active_slot == BOOT_SLOT_ID_NONE) {
         return BOOT_SLOT_ID_NONE;
     }
-    if (boot_image_check(metadata->active_slot, NULL) == BOOT_IMAGE_VALID)
-    {
+    if (boot_image_check(metadata->active_slot, NULL) == BOOT_IMAGE_VALID) {
         return metadata->active_slot;
     }
 
@@ -71,19 +68,16 @@ static uint32_t boot_main_choose_target(const boot_metadata_t *metadata, uint32_
 {
     uint32_t active = metadata->active_slot;
 
-    if ((active == BOOT_SLOT_ID_A) || (active == BOOT_SLOT_ID_B))
-    {
+    if ((active == BOOT_SLOT_ID_A) || (active == BOOT_SLOT_ID_B)) {
         return boot_flash_other_slot(active);
     }
 
     if ((protected_slot != BOOT_SLOT_ID_A) &&
-        (boot_image_check(BOOT_SLOT_ID_A, NULL) != BOOT_IMAGE_VALID))
-    {
+        (boot_image_check(BOOT_SLOT_ID_A, NULL) != BOOT_IMAGE_VALID)) {
         return BOOT_SLOT_ID_A;
     }
     if ((protected_slot != BOOT_SLOT_ID_B) &&
-        (boot_image_check(BOOT_SLOT_ID_B, NULL) != BOOT_IMAGE_VALID))
-    {
+        (boot_image_check(BOOT_SLOT_ID_B, NULL) != BOOT_IMAGE_VALID)) {
         return BOOT_SLOT_ID_B;
     }
 
@@ -99,20 +93,17 @@ static uint32_t boot_main_choose_target(const boot_metadata_t *metadata, uint32_
  */
 static bool boot_main_handle_confirm(boot_metadata_t *metadata)
 {
-    if (!boot_mailbox_has_confirm())
-    {
+    if (!boot_mailbox_has_confirm()) {
         return false;
     }
-    if (boot_mailbox_launched_slot() != metadata->pending_slot)
-    {
+    if (boot_mailbox_launched_slot() != metadata->pending_slot) {
         boot_mailbox_consume_confirm();
         return false;
     }
 
     boot_mailbox_consume_confirm();
 
-    if (!boot_metadata_confirm(metadata))
-    {
+    if (!boot_metadata_confirm(metadata)) {
         return false;
     }
 
@@ -141,24 +132,18 @@ static void boot_main_decide(boot_metadata_t *metadata, boot_status_t *status)
     status->running_slot = BOOT_SLOT_ID_NONE;
     status->is_pending_launch = false;
 
-    if ((pending == BOOT_SLOT_ID_A) || (pending == BOOT_SLOT_ID_B))
-    {
-        if (boot_image_check(pending, &image) != BOOT_IMAGE_VALID)
-        {
+    if ((pending == BOOT_SLOT_ID_A) || (pending == BOOT_SLOT_ID_B)) {
+        if (boot_image_check(pending, &image) != BOOT_IMAGE_VALID) {
             /* 还没试运行就发现镜像坏了，直接作废，回到 active。 */
             (void)boot_metadata_clear_pending(metadata);
             (void)boot_metadata_save(metadata);
             pending = BOOT_SLOT_ID_NONE;
-        }
-        else if (metadata->boot_attempts >= metadata->max_attempts)
-        {
+        } else if (metadata->boot_attempts >= metadata->max_attempts) {
             /* 试运行次数用尽仍未收到确认，判定新镜像不可用并回滚。 */
             (void)boot_metadata_clear_pending(metadata);
             (void)boot_metadata_save(metadata);
             pending = BOOT_SLOT_ID_NONE;
-        }
-        else
-        {
+        } else {
             s_chosen = image;
             status->decision = BOOT_DECISION_RUN_PENDING;
             status->running_slot = pending;
@@ -170,8 +155,7 @@ static void boot_main_decide(boot_metadata_t *metadata, boot_status_t *status)
     status->pending_slot = BOOT_SLOT_ID_NONE;
 
     if (((active == BOOT_SLOT_ID_A) || (active == BOOT_SLOT_ID_B)) &&
-        (boot_image_check(active, &image) == BOOT_IMAGE_VALID))
-    {
+        (boot_image_check(active, &image) == BOOT_IMAGE_VALID)) {
         s_chosen = image;
         status->decision = BOOT_DECISION_RUN_ACTIVE;
         status->running_slot = active;
@@ -179,28 +163,20 @@ static void boot_main_decide(boot_metadata_t *metadata, boot_status_t *status)
     }
 
     /* active 坏了或压根没有：看看另一槽能不能救场。 */
-    if ((active == BOOT_SLOT_ID_A) || (active == BOOT_SLOT_ID_B))
-    {
+    if ((active == BOOT_SLOT_ID_A) || (active == BOOT_SLOT_ID_B)) {
         other = boot_flash_other_slot(active);
-        if (boot_image_check(other, &image) == BOOT_IMAGE_VALID)
-        {
+        if (boot_image_check(other, &image) == BOOT_IMAGE_VALID) {
             candidate = other;
         }
-    }
-    else
-    {
-        if (boot_image_check(BOOT_SLOT_ID_A, &image) == BOOT_IMAGE_VALID)
-        {
+    } else {
+        if (boot_image_check(BOOT_SLOT_ID_A, &image) == BOOT_IMAGE_VALID) {
             candidate = BOOT_SLOT_ID_A;
-        }
-        else if (boot_image_check(BOOT_SLOT_ID_B, &image) == BOOT_IMAGE_VALID)
-        {
+        } else if (boot_image_check(BOOT_SLOT_ID_B, &image) == BOOT_IMAGE_VALID) {
             candidate = BOOT_SLOT_ID_B;
         }
     }
 
-    if (candidate != BOOT_SLOT_ID_NONE)
-    {
+    if (candidate != BOOT_SLOT_ID_NONE) {
         metadata->active_slot = candidate;
         metadata->pending_slot = BOOT_SLOT_ID_NONE;
         metadata->boot_attempts = 0u;
@@ -226,21 +202,21 @@ static void boot_main_poll_session(void)
 {
     boot_update_state_t state = boot_update_state(&s_update);
 
-    if (state == BOOT_UPDATE_STATE_DONE)
-    {
+    if (state == BOOT_UPDATE_STATE_DONE) {
         ota_cli_reply_ok_begin(&s_cli);
         ota_cli_reply_kv_str(&s_cli, "ota", "done");
         ota_cli_reply_kv_str(&s_cli, "slot",
                              (s_update.target_slot == BOOT_SLOT_ID_A) ? "A" : "B");
         ota_cli_reply_kv_u32(&s_cli, "size", s_update.image_size);
         ota_cli_reply_kv_hex(&s_cli, "crc", s_update.image_crc32);
+        ota_cli_reply_kv_str(&s_cli, "sig", s_update.has_signature ? "YES" : "NO");
+        ota_cli_reply_kv_hex(&s_cli, "kid", s_update.pubkey_id);
         ota_cli_reply_end(&s_cli);
 
         boot_jump_restart();
     }
 
-    if (state == BOOT_UPDATE_STATE_FAILED)
-    {
+    if (state == BOOT_UPDATE_STATE_FAILED) {
         ota_cli_reply_err_begin(&s_cli, OTA_CLI_ERR_FAILED);
         ota_cli_reply_kv_str(&s_cli, "ota", "recv");
         ota_cli_reply_kv_str(&s_cli, "reason", boot_update_reason_name(s_update.reason));
@@ -260,10 +236,8 @@ static void boot_main_run_update_mode(const boot_status_t *status)
 {
     uint8_t byte;
 
-    if (!boot_transport_init())
-    {
-        for (;;)
-        {
+    if (!boot_transport_init()) {
+        for (;;) {
         }
     }
 
@@ -280,18 +254,13 @@ static void boot_main_run_update_mode(const boot_status_t *status)
     boot_transport_write_str("\r\n[BOOT] " BOOT_VERSION_STRING " update mode\r\n");
     boot_transport_write_str("[BOOT] type 'help' for commands\r\n");
 
-    for (;;)
-    {
-        if (boot_update_is_busy(&s_update))
-        {
+    for (;;) {
+        if (boot_update_is_busy(&s_update)) {
             /* 会话进行中由状态机独占串口：两个读者同时取字节会互相抢。 */
             boot_update_poll(&s_update);
             boot_main_poll_session();
-        }
-        else
-        {
-            while (boot_transport_read(&byte))
-            {
+        } else {
+            while (boot_transport_read(&byte)) {
                 ota_cli_feed(&s_cli, &byte, 1u);
             }
         }
@@ -308,15 +277,13 @@ static void boot_main_launch(boot_status_t *status)
     boot_jump_vector_t vector;
     uint32_t flags = 0u;
 
-    if (!boot_jump_vector(status->running_slot, s_chosen.image_size, &vector))
-    {
+    if (!boot_jump_vector(status->running_slot, s_chosen.image_size, &vector)) {
         /* 决策与跳转前的复核不一致，保守地退回升级模式。 */
         boot_main_run_update_mode(status);
         return;
     }
 
-    if (status->is_pending_launch)
-    {
+    if (status->is_pending_launch) {
         (void)boot_metadata_set_attempts(&s_metadata, s_metadata.boot_attempts + 1u);
         (void)boot_metadata_save(&s_metadata);
         status->boot_attempts = s_metadata.boot_attempts;
@@ -337,15 +304,13 @@ void boot_main(void)
 
     s_status.is_metadata_valid = boot_metadata_load(&s_metadata);
 
-    if (boot_main_handle_confirm(&s_metadata))
-    {
+    if (boot_main_handle_confirm(&s_metadata)) {
         s_status.is_metadata_valid = true;
     }
 
     /* NVS 请求要先于决策处理：它可能刚把 pending 定下来，决策得看得见。 */
     report = boot_nvs_process(BOOT_SLOT_ID_NONE, &s_metadata);
-    if (report.result == BOOT_NVS_RESULT_APPLIED)
-    {
+    if (report.result == BOOT_NVS_RESULT_APPLIED) {
         s_status.is_metadata_valid = true;
     }
 
@@ -355,8 +320,7 @@ void boot_main(void)
     s_cli_context.target_slot = boot_main_choose_target(&s_metadata, s_cli_context.protected_slot);
 
     /* 没得跑，或者 App 明确要求回 Boot，都进升级模式。 */
-    if ((s_status.decision == BOOT_DECISION_WAIT_UPDATE) || boot_mailbox_has_request())
-    {
+    if ((s_status.decision == BOOT_DECISION_WAIT_UPDATE) || boot_mailbox_has_request()) {
         boot_mailbox_consume_request();
         boot_main_run_update_mode(&s_status);
     }

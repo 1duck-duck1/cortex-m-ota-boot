@@ -32,12 +32,10 @@ static void app_cli_write(const char *text, uint32_t size, void *write_context)
 
 static const char *app_cli_slot_name(uint32_t slot_id)
 {
-    if (slot_id == APP_SLOT_ID_A)
-    {
+    if (slot_id == APP_SLOT_ID_A) {
         return "A";
     }
-    if (slot_id == APP_SLOT_ID_B)
-    {
+    if (slot_id == APP_SLOT_ID_B) {
         return "B";
     }
     return "NONE";
@@ -56,18 +54,15 @@ static const char *app_cli_image_state_name(uint32_t slot_id)
  */
 static bool app_cli_parse_slot(const char *text, uint32_t *slot_id)
 {
-    if ((text == NULL) || (slot_id == NULL) || (text[1] != '\0'))
-    {
+    if ((text == NULL) || (slot_id == NULL) || (text[1] != '\0')) {
         return false;
     }
 
-    if ((text[0] == 'A') || (text[0] == 'a'))
-    {
+    if ((text[0] == 'A') || (text[0] == 'a')) {
         *slot_id = APP_SLOT_ID_A;
         return true;
     }
-    if ((text[0] == 'B') || (text[0] == 'b'))
-    {
+    if ((text[0] == 'B') || (text[0] == 'b')) {
         *slot_id = APP_SLOT_ID_B;
         return true;
     }
@@ -81,8 +76,7 @@ static ota_cli_result_t app_cli_cmd_info(int argc, char *argv[],
     (void)argv;
     (void)handler_context;
 
-    if (argc != 1)
-    {
+    if (argc != 1) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
@@ -115,8 +109,7 @@ static ota_cli_result_t app_cli_cmd_slot(int argc, char *argv[],
     (void)argv;
     (void)handler_context;
 
-    if (argc != 1)
-    {
+    if (argc != 1) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
@@ -140,19 +133,16 @@ static ota_cli_result_t app_cli_ota_erase(const char *text)
 {
     uint32_t slot_id;
 
-    if (!app_cli_parse_slot(text, &slot_id))
-    {
+    if (!app_cli_parse_slot(text, &slot_id)) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
-    if (slot_id == APP_SLOT_ID)
-    {
+    if (slot_id == APP_SLOT_ID) {
         ota_cli_reply_err_begin(&s_cli, OTA_CLI_ERR_BAD_PARAM);
         ota_cli_reply_kv_str(&s_cli, "reason", "RUNNING_SLOT");
         ota_cli_reply_end(&s_cli);
         return OTA_CLI_OK;
     }
-    if (!app_flash_erase_slot(slot_id))
-    {
+    if (!app_flash_erase_slot(slot_id)) {
         ota_cli_reply_err_begin(&s_cli, OTA_CLI_ERR_FAILED);
         ota_cli_reply_kv_str(&s_cli, "reason", "FLASH_FAILED");
         ota_cli_reply_end(&s_cli);
@@ -177,8 +167,7 @@ static ota_cli_result_t app_cli_ota_erase(const char *text)
  */
 static ota_cli_result_t app_cli_ota_confirm(void)
 {
-    if (!app_boot_client_is_pending())
-    {
+    if (!app_boot_client_is_pending()) {
         ota_cli_reply_err_begin(&s_cli, OTA_CLI_ERR_FAILED);
         ota_cli_reply_kv_str(&s_cli, "reason", "NOT_PENDING");
         ota_cli_reply_end(&s_cli);
@@ -207,10 +196,8 @@ static ota_cli_result_t app_cli_ota_recv(int argc, char *argv[])
     uint32_t version = 0u;
     bool has_version = false;
 
-    if (argc == 3)
-    {
-        if (!ota_cli_parse_version(argv[2], &version))
-        {
+    if (argc == 3) {
+        if (!ota_cli_parse_version(argv[2], &version)) {
             return OTA_CLI_ERR_BAD_PARAM;
         }
         has_version = true;
@@ -226,33 +213,26 @@ static ota_cli_result_t app_cli_cmd_ota(int argc, char *argv[],
 {
     (void)handler_context;
 
-    if (argc < 2)
-    {
+    if (argc < 2) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
-    if (strcmp(argv[1], "recv") == 0)
-    {
-        if (argc > 3)
-        {
+    if (strcmp(argv[1], "recv") == 0) {
+        if (argc > 3) {
             return OTA_CLI_ERR_BAD_PARAM;
         }
         return app_cli_ota_recv(argc, argv);
     }
 
-    if (strcmp(argv[1], "erase") == 0)
-    {
-        if (argc != 3)
-        {
+    if (strcmp(argv[1], "erase") == 0) {
+        if (argc != 3) {
             return OTA_CLI_ERR_BAD_PARAM;
         }
         return app_cli_ota_erase(argv[2]);
     }
 
-    if (strcmp(argv[1], "confirm") == 0)
-    {
-        if (argc != 2)
-        {
+    if (strcmp(argv[1], "confirm") == 0) {
+        if (argc != 2) {
             return OTA_CLI_ERR_BAD_PARAM;
         }
         return app_cli_ota_confirm();
@@ -270,8 +250,7 @@ static ota_cli_result_t app_cli_cmd_boot(int argc, char *argv[],
     (void)argv;
     (void)handler_context;
 
-    if (argc != 1)
-    {
+    if (argc != 1) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
@@ -290,8 +269,7 @@ static ota_cli_result_t app_cli_cmd_reset(int argc, char *argv[],
     (void)argv;
     (void)handler_context;
 
-    if (argc != 1)
-    {
+    if (argc != 1) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
@@ -326,8 +304,7 @@ void app_cli_report_ota(app_ota_result_t result)
 {
     const app_ota_status_t *status = app_ota_service_status();
 
-    if (result == APP_OTA_DONE)
-    {
+    if (result == APP_OTA_DONE) {
         /* 走到这里 NVS 请求已落盘，调用方随即复位回 Boot。size 与 crc32 一并
            回报，上位机可用 zlib.crc32 对照，确认整条链路与落盘都无误。 */
         ota_cli_reply_ok_begin(&s_cli);
@@ -336,6 +313,8 @@ void app_cli_report_ota(app_ota_result_t result)
         ota_cli_reply_kv_u32(&s_cli, "ver", status->version);
         ota_cli_reply_kv_u32(&s_cli, "size", status->size);
         ota_cli_reply_kv_u32(&s_cli, "crc32", status->crc32);
+        ota_cli_reply_kv_str(&s_cli, "sig", status->has_signature ? "YES" : "NO");
+        ota_cli_reply_kv_u32(&s_cli, "kid", status->pubkey_id);
         ota_cli_reply_end(&s_cli);
         return;
     }
@@ -355,10 +334,8 @@ void app_cli_poll(void)
     uint8_t chunk[APP_CLI_READ_CHUNK];
     uint32_t count;
 
-    if (!s_is_started)
-    {
-        if (!app_transport_is_ready())
-        {
+    if (!s_is_started) {
+        if (!app_transport_is_ready()) {
             /* 串口没起来不该把命令行判死：下一轮再试。 */
             return;
         }
@@ -371,8 +348,7 @@ void app_cli_poll(void)
     }
 
     count = app_transport_read(chunk, (uint32_t)sizeof(chunk));
-    if (count > 0u)
-    {
+    if (count > 0u) {
         ota_cli_feed(&s_cli, chunk, count);
     }
 }

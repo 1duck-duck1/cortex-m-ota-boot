@@ -43,8 +43,8 @@ updated: 2026-09-18
 |---|---|---|
 | 传输通道 | UART-YMODEM / CAN / USB-DFU / USB-MSC(UF2) / 空（仅跳转） | UART-YMODEM |
 | 槽策略 | 单槽 / A/B overwrite-only / A/B swap | A/B overwrite-only（切换仅提交元数据） |
-| 安全等级 | L0 无 / L1 CRC / L2 SHA256 / L3 签名 / L4 签名+加密 | v0.2 达 L1；v0.4 达 L3 |
-| 回滚机制 | 无 / 看门狗超时 / 计数器确认 / 版本号防回滚 | 计数器确认（F-04），v0.4 加防回滚 |
+| 安全等级 | L0 无 / L1 CRC / L2 SHA256 / L3 签名 / L4 签名+加密 | v0.2 达 L1（CRC）；v0.4 的 **Ed25519 签名（L3）已落地**，加密（L4）未做 |
+| 回滚机制 | 无 / 看门狗超时 / 计数器确认 / 版本号防回滚 | 计数器确认（F-04），v0.4 加防回滚（X-02 待做） |
 | 入口方式 | 上电直跳 / 超时窗口 / 按键 / backdoor 魔数 / App 回跳请求 | App 回跳请求（F-03），超时窗口候选 |
 | 元数据存放 | 无 / BKP 寄存器 / `.noinit` SRAM 邮箱 / Flash 元数据区 | SRAM 邮箱（运行期）+ Flash 元数据（持久期） |
 
@@ -95,7 +95,7 @@ flowchart TB
 | v0.1.0 ✅ | 双向跳转闭环 | AN2606 ROM 的"能进能跳"+ 独有的 App 确认语义 |
 | v0.2.0 🚧 | UART + YMODEM、Flash 双槽、元数据双副本、CRC | **AN4023 全量 + 其不具备的掉电安全元数据** |
 | v0.3.0 | 掉电安全状态机 + 计数回滚 | stm32-bootloader 的测试方法；ESP32 的试运行回滚语义 |
-| v0.4.0 | Ed25519 签名 + 防回滚 | **MCUboot / SBSFU 的安全能力**（曲线更小：Ed25519 vs ECDSA） |
+| v0.4.0 🚧 | Ed25519 签名（X-01 已落地）+ 防回滚（X-02 待做） | **MCUboot / SBSFU 的安全能力**（曲线更小：Ed25519 vs ECDSA） |
 | v0.5.0 | Python 上位机（pip 可装） | OpenBLT 的 MicroBoot 定位 |
 | v1.0.0 | 接口冻结 + 完整文档 | — |
 | v1.0+ 候选 | CAN 传输（已列增强）、USB-DFU / UF2 拖拽、CSV 分区表 | stm32-bootloader 的多协议广度；TinyUF2 的体验；ESP32 的分区表 |

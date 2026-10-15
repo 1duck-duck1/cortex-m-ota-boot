@@ -6,8 +6,6 @@
  */
 #include "boot_cli.h"
 
-#include <string.h>
-
 #include "boot_adopt.h"
 #include "boot_conf.h"
 #include "boot_flash.h"
@@ -17,6 +15,8 @@
 #include "boot_nvs.h"
 #include "boot_transport.h"
 
+#include <string.h>
+
 /**
  * @brief  把槽编号转成单字母，供应答输出
  * @param  slot_id 槽编号
@@ -24,12 +24,10 @@
  */
 static const char *boot_cli_slot_name(uint32_t slot_id)
 {
-    if (slot_id == BOOT_SLOT_ID_A)
-    {
+    if (slot_id == BOOT_SLOT_ID_A) {
         return "A";
     }
-    if (slot_id == BOOT_SLOT_ID_B)
-    {
+    if (slot_id == BOOT_SLOT_ID_B) {
         return "B";
     }
 
@@ -44,18 +42,15 @@ static const char *boot_cli_slot_name(uint32_t slot_id)
  */
 static bool boot_cli_parse_slot(const char *text, uint32_t *slot_id)
 {
-    if ((text == NULL) || (slot_id == NULL) || (text[1] != '\0'))
-    {
+    if ((text == NULL) || (slot_id == NULL) || (text[1] != '\0')) {
         return false;
     }
 
-    if ((text[0] == 'A') || (text[0] == 'a'))
-    {
+    if ((text[0] == 'A') || (text[0] == 'a')) {
         *slot_id = BOOT_SLOT_ID_A;
         return true;
     }
-    if ((text[0] == 'B') || (text[0] == 'b'))
-    {
+    if ((text[0] == 'B') || (text[0] == 'b')) {
         *slot_id = BOOT_SLOT_ID_B;
         return true;
     }
@@ -125,6 +120,9 @@ static ota_cli_result_t boot_cli_info(int argc, char *argv[], void *ctx)
                          boot_cli_slot_name(request.target_slot) : "NONE");
     ota_cli_reply_kv_u32(cli, "ota_size", has_request ? request.image_size : 0u);
     ota_cli_reply_kv_hex(cli, "ota_ver", has_request ? request.version : 0u);
+    ota_cli_reply_kv_str(cli, "ota_sig", has_request ?
+                         ((request.sig_algorithm == OTA_IMAGE_SIG_NONE) ? "NO" : "YES") : "none");
+    ota_cli_reply_kv_hex(cli, "ota_kid", has_request ? request.pubkey_id : 0u);
     ota_cli_reply_end(cli);
 
     return OTA_CLI_OK;
@@ -165,14 +163,11 @@ static ota_cli_result_t boot_cli_ota_recv(int argc, char *argv[], void *ctx)
     uint32_t version = OTA_REQUEST_VERSION_NONE;
     bool has_version = false;
 
-    if (argc > 3)
-    {
+    if (argc > 3) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
-    if (argc == 3)
-    {
-        if (!ota_cli_parse_version(argv[2], &version))
-        {
+    if (argc == 3) {
+        if (!ota_cli_parse_version(argv[2], &version)) {
             return OTA_CLI_ERR_BAD_PARAM;
         }
         has_version = true;
@@ -182,8 +177,7 @@ static ota_cli_result_t boot_cli_ota_recv(int argc, char *argv[], void *ctx)
                            context->target_slot,
                            context->protected_slot,
                            version,
-                           has_version))
-    {
+                           has_version)) {
         ota_cli_reply_err_begin(context->cli, OTA_CLI_ERR_FAILED);
         ota_cli_reply_kv_str(context->cli, "reason", "BUSY");
         ota_cli_reply_end(context->cli);
@@ -193,8 +187,7 @@ static ota_cli_result_t boot_cli_ota_recv(int argc, char *argv[], void *ctx)
     ota_cli_reply_ok_begin(context->cli);
     ota_cli_reply_kv_str(context->cli, "ota", "recv");
     ota_cli_reply_kv_str(context->cli, "slot", boot_cli_slot_name(context->target_slot));
-    if (has_version)
-    {
+    if (has_version) {
         ota_cli_reply_kv_hex(context->cli, "ver", version);
     }
     ota_cli_reply_end(context->cli);
@@ -218,16 +211,13 @@ static ota_cli_result_t boot_cli_ota_adopt(int argc, char *argv[], void *ctx)
     uint32_t slot_id = BOOT_SLOT_ID_NONE;
     uint32_t version = OTA_REQUEST_VERSION_NONE;
 
-    if (argc != 4)
-    {
+    if (argc != 4) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
-    if (!boot_cli_parse_slot(argv[2], &slot_id))
-    {
+    if (!boot_cli_parse_slot(argv[2], &slot_id)) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
-    if (!ota_cli_parse_version(argv[3], &version))
-    {
+    if (!ota_cli_parse_version(argv[3], &version)) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
@@ -235,8 +225,7 @@ static ota_cli_result_t boot_cli_ota_adopt(int argc, char *argv[], void *ctx)
                         context->protected_slot,
                         version,
                         context->metadata,
-                        &report) != BOOT_ADOPT_OK)
-    {
+                        &report) != BOOT_ADOPT_OK) {
         ota_cli_reply_err_begin(context->cli, OTA_CLI_ERR_FAILED);
         ota_cli_reply_kv_str(context->cli, "reason", boot_adopt_result_name(report.result));
         ota_cli_reply_end(context->cli);
@@ -262,17 +251,14 @@ static ota_cli_result_t boot_cli_ota_adopt(int argc, char *argv[], void *ctx)
  */
 static ota_cli_result_t boot_cli_ota(int argc, char *argv[], void *ctx)
 {
-    if (argc < 2)
-    {
+    if (argc < 2) {
         return OTA_CLI_ERR_BAD_PARAM;
     }
 
-    if (strcmp(argv[1], "recv") == 0)
-    {
+    if (strcmp(argv[1], "recv") == 0) {
         return boot_cli_ota_recv(argc, argv, ctx);
     }
-    if (strcmp(argv[1], "adopt") == 0)
-    {
+    if (strcmp(argv[1], "adopt") == 0) {
         return boot_cli_ota_adopt(argc, argv, ctx);
     }
 

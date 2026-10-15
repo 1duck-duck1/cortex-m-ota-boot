@@ -34,17 +34,14 @@ static uint32_t boot_flash_sector_of(uint32_t address)
 {
     uint32_t index;
 
-    if ((address < BOOT_FLASH_BASE) || (address >= (BOOT_FLASH_BASE + BOOT_FLASH_SIZE)))
-    {
+    if ((address < BOOT_FLASH_BASE) || (address >= (BOOT_FLASH_BASE + BOOT_FLASH_SIZE))) {
         return BOOT_FLASH_SECTOR_INVALID;
     }
 
     /* 从后往前找最后一个起始地址不大于 address 的扇区：表只有 12 项，
        线性回扫比二分更省代码。 */
-    for (index = BOOT_FLASH_SECTOR_TOTAL; index > 0u; index--)
-    {
-        if (address >= s_sector_address[index - 1u])
-        {
+    for (index = BOOT_FLASH_SECTOR_TOTAL; index > 0u; index--) {
+        if (address >= s_sector_address[index - 1u]) {
             return index - 1u;
         }
     }
@@ -98,23 +95,19 @@ BOOT_RAMFUNC static bool boot_flash_program_words(uint32_t address,
     uint32_t chunk;
     bool result = true;
 
-    while ((offset < size) && result)
-    {
+    while ((offset < size) && result) {
         chunk = size - offset;
-        if (chunk > 4u)
-        {
+        if (chunk > 4u) {
             chunk = 4u;
         }
 
         value = 0xFFFFFFFFu;
-        for (index = 0u; index < chunk; index++)
-        {
+        for (index = 0u; index < chunk; index++) {
             value = (value & ~(0xFFu << (index * 8u))) |
                     ((uint32_t)data[offset + index] << (index * 8u));
         }
 
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address + offset, value) != HAL_OK)
-        {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, address + offset, value) != HAL_OK) {
             result = false;
         }
 
@@ -126,12 +119,10 @@ BOOT_RAMFUNC static bool boot_flash_program_words(uint32_t address,
 
 uint32_t boot_flash_slot_base(uint32_t slot_id)
 {
-    if (slot_id == BOOT_SLOT_ID_A)
-    {
+    if (slot_id == BOOT_SLOT_ID_A) {
         return BOOT_SLOT_A_ADDR;
     }
-    if (slot_id == BOOT_SLOT_ID_B)
-    {
+    if (slot_id == BOOT_SLOT_ID_B) {
         return BOOT_SLOT_B_ADDR;
     }
 
@@ -140,12 +131,10 @@ uint32_t boot_flash_slot_base(uint32_t slot_id)
 
 uint32_t boot_flash_other_slot(uint32_t slot_id)
 {
-    if (slot_id == BOOT_SLOT_ID_A)
-    {
+    if (slot_id == BOOT_SLOT_ID_A) {
         return BOOT_SLOT_ID_B;
     }
-    if (slot_id == BOOT_SLOT_ID_B)
-    {
+    if (slot_id == BOOT_SLOT_ID_B) {
         return BOOT_SLOT_ID_A;
     }
 
@@ -158,22 +147,18 @@ bool boot_flash_range_in_slot(uint32_t address, uint32_t size)
     uint32_t base;
     uint32_t index;
 
-    if (size == 0u)
-    {
+    if (size == 0u) {
         return false;
     }
 
     end = address + size;
-    if (end < address)
-    {
+    if (end < address) {
         return false;   /* 地址回绕，必然越界 */
     }
 
-    for (index = 0u; index < 2u; index++)
-    {
+    for (index = 0u; index < 2u; index++) {
         base = boot_flash_slot_base(index);
-        if ((address >= base) && (end <= (base + BOOT_SLOT_SIZE)))
-        {
+        if ((address >= base) && (end <= (base + BOOT_SLOT_SIZE))) {
             return true;
         }
     }
@@ -185,15 +170,12 @@ bool boot_flash_is_erased(uint32_t address, uint32_t size)
 {
     uint32_t index;
 
-    if (size == 0u)
-    {
+    if (size == 0u) {
         return false;
     }
 
-    for (index = 0u; index < size; index++)
-    {
-        if (*(volatile uint8_t *)(address + index) != 0xFFu)
-        {
+    for (index = 0u; index < size; index++) {
+        if (*(volatile uint8_t *)(address + index) != 0xFFu) {
             return false;
         }
     }
@@ -207,21 +189,17 @@ BOOT_RAMFUNC bool boot_flash_erase_slot(uint32_t slot_id)
     uint32_t sector;
     uint32_t index;
 
-    if (base == 0u)
-    {
+    if (base == 0u) {
         return false;
     }
 
     sector = boot_flash_sector_of(base);
-    if (sector == BOOT_FLASH_SECTOR_INVALID)
-    {
+    if (sector == BOOT_FLASH_SECTOR_INVALID) {
         return false;
     }
 
-    for (index = 0u; index < BOOT_SLOT_SECTOR_COUNT; index++)
-    {
-        if (!boot_flash_erase_sector(sector + index))
-        {
+    for (index = 0u; index < BOOT_SLOT_SECTOR_COUNT; index++) {
+        if (!boot_flash_erase_sector(sector + index)) {
             return false;
         }
     }
@@ -237,8 +215,7 @@ BOOT_RAMFUNC bool boot_flash_erase_nvs(void)
        这类几何错误必须在运行期挡住，而不是靠配置时的细心。 */
     if ((sector == BOOT_FLASH_SECTOR_INVALID) ||
         (s_sector_address[sector] != BOOT_NVS_ADDR) ||
-        (BOOT_NVS_SIZE != (BOOT_SLOT_A_ADDR - BOOT_NVS_ADDR)))
-    {
+        (BOOT_NVS_SIZE != (BOOT_SLOT_A_ADDR - BOOT_NVS_ADDR))) {
         return false;
     }
 
@@ -249,12 +226,10 @@ BOOT_RAMFUNC bool boot_flash_write(uint32_t address, const uint8_t *data, uint32
 {
     bool result;
 
-    if ((data == NULL) || (size == 0u) || ((address & 0x3u) != 0u))
-    {
+    if ((data == NULL) || (size == 0u) || ((address & 0x3u) != 0u)) {
         return false;
     }
-    if (!boot_flash_range_in_slot(address, size))
-    {
+    if (!boot_flash_range_in_slot(address, size)) {
         return false;
     }
 
@@ -276,33 +251,25 @@ BOOT_RAMFUNC bool boot_flash_write_metadata(uint32_t copy_index,
     uint32_t sector;
     bool result;
 
-    if (copy_index == 0u)
-    {
+    if (copy_index == 0u) {
         address = BOOT_METADATA_A_ADDR;
-    }
-    else if (copy_index == 1u)
-    {
+    } else if (copy_index == 1u) {
         address = BOOT_METADATA_B_ADDR;
-    }
-    else
-    {
+    } else {
         return false;
     }
 
-    if ((data == NULL) || (size == 0u) || (size > BOOT_METADATA_SIZE))
-    {
+    if ((data == NULL) || (size == 0u) || (size > BOOT_METADATA_SIZE)) {
         return false;
     }
 
     sector = boot_flash_sector_of(address);
-    if ((sector == BOOT_FLASH_SECTOR_INVALID) || (s_sector_address[sector] != address))
-    {
+    if ((sector == BOOT_FLASH_SECTOR_INVALID) || (s_sector_address[sector] != address)) {
         return false;
     }
 
     /* 先擦后写：Flash 只能把 1 写成 0，同一份副本二次写入前必须回到全 1。 */
-    if (!boot_flash_erase_sector(sector))
-    {
+    if (!boot_flash_erase_sector(sector)) {
         return false;
     }
 
@@ -320,12 +287,10 @@ BOOT_RAMFUNC bool boot_flash_write_nvs(uint32_t offset, const uint8_t *data, uin
 {
     bool result;
 
-    if ((data == NULL) || (size == 0u) || ((offset & 0x3u) != 0u))
-    {
+    if ((data == NULL) || (size == 0u) || ((offset & 0x3u) != 0u)) {
         return false;
     }
-    if (offset > (BOOT_NVS_SIZE - size))
-    {
+    if (offset > (BOOT_NVS_SIZE - size)) {
         return false;
     }
 
@@ -343,13 +308,11 @@ bool boot_flash_read(uint32_t address, uint8_t *data, uint32_t size)
 {
     uint32_t index;
 
-    if ((data == NULL) || (size == 0u))
-    {
+    if ((data == NULL) || (size == 0u)) {
         return false;
     }
 
-    for (index = 0u; index < size; index++)
-    {
+    for (index = 0u; index < size; index++) {
         data[index] = *(volatile uint8_t *)(address + index);
     }
 
@@ -358,8 +321,7 @@ bool boot_flash_read(uint32_t address, uint8_t *data, uint32_t size)
 
 bool boot_flash_read_nvs(uint32_t offset, uint8_t *data, uint32_t size)
 {
-    if ((data == NULL) || (size == 0u) || (offset > (BOOT_NVS_SIZE - size)))
-    {
+    if ((data == NULL) || (size == 0u) || (offset > (BOOT_NVS_SIZE - size))) {
         return false;
     }
 

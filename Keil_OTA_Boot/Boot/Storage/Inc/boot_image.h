@@ -1,13 +1,14 @@
 /**
  ******************************************************************************
  * @file    boot_image.h
- * @brief   槽内镜像的完整校验：镜像头、载荷 CRC32、向量表三道关
+ * @brief   槽内镜像的完整校验：镜像头、载荷 CRC32、签名、向量表四道关
  *
  * 这是"某个槽能不能启动"的唯一判据，启动决策与 ota recv 收尾都走它，避免两处
- * 各写一套判据后慢慢分歧。三道关的取舍：
+ * 各写一套判据后慢慢分歧。四道关的取舍：
  * 1. 镜像头自洽——魔术、版本、几何、头 CRC32，全部是本地计算，代价最低；
  * 2. 载荷 CRC32 与头里声明的一致——真正证明"槽里这堆字节就是当初那一份"；
- * 3. 向量表的 SP / PC 合法——即使前两关都过，SP 指向天上或 PC 落在槽外，
+ * 3. 签名验证通过——证明这份字节出自持有私钥的授权方，挡住"格式全对但来源不明"；
+ * 4. 向量表的 SP / PC 合法——即使前三关都过，SP 指向天上或 PC 落在槽外，
  *    跳过去也是立刻跑飞，必须在跳转前挡住。
  ******************************************************************************
  */
@@ -25,8 +26,9 @@ typedef enum
     BOOT_IMAGE_EMPTY = 0,           /**< 槽首为擦除态，从未烧录或已被擦除 */
     BOOT_IMAGE_HEADER_INVALID,      /**< 镜像头缺失、魔术不符或头 CRC32 不对 */
     BOOT_IMAGE_PAYLOAD_MISMATCH,    /**< 头自洽，但载荷 CRC32 与头声明不符 */
-    BOOT_IMAGE_VECTOR_INVALID,      /**< 头与载荷 CRC32 都对，但向量表 SP/PC 非法 */
-    BOOT_IMAGE_VALID                /**< 三道关全部通过，可以跳转 */
+    BOOT_IMAGE_SIGNATURE_INVALID,   /**< 头与载荷 CRC32 都对，但签名验证不通过 */
+    BOOT_IMAGE_VECTOR_INVALID,      /**< 前三道关都对，但向量表 SP/PC 非法 */
+    BOOT_IMAGE_VALID                /**< 四道关全部通过，可以跳转 */
 } boot_image_state_t;
 
 /** 一次校验的完整结果 */
@@ -43,8 +45,9 @@ typedef struct
  * @param  slot_id 槽编号，BOOT_SLOT_ID_A / BOOT_SLOT_ID_B
  * @param  image   校验结果，允许为 NULL
  * @return 校验结论
- * @note   载荷 CRC32 要读完整个镜像，384 KB 约耗时十余毫秒；每次启动都会执行，
- *         这是"绝不跳到坏镜像上"的代价。
+ * @note   载荷 CRC32 要读完整个镜像，384 KB 约耗时十余毫秒；验签又要把整段载荷
+ *         过一遍 SHA-512。每次启动都会执行，这是"绝不跳到坏镜像或来源不明镜像上"
+ *         的代价。
  */
 boot_image_state_t boot_image_check(uint32_t slot_id, boot_image_t *image);
 
@@ -76,15 +79,23 @@ bool boot_image_payload_crc(uint32_t slot_id, uint32_t image_size, uint32_t *crc
  * @param  version        固件版本号
  * @param  image_size     载荷长度，单位字节
  * @param  payload_crc32  载荷 CRC32
+ * @param  sig_algorithm  签名算法标识，取自 OTA_IMAGE_SIG_*
+ * @param  pubkey_id      签名所用公钥编号
+ * @param  signature      签名指针，长度 OTA_IMAGE_SIGNATURE_SIZE 字节；传 NULL 表示
+ *                        未签名（仅 BOOT_REQUIRE_SIGNATURE=0 的开发路径会用到）
  * @return true 表示头已落盘且可被 boot_image_check() 认作自洽
  * @retval false 槽编号或长度非法，头区已被写过，或编程失败
  * @note   只允许在头区仍为擦除态时写入：已写过头区的槽必须整槽重传，
  *         否则新头会与旧头按位相与，得到一份两个来源都不是的头。
+ *         本函数不验签，签名是否可信由调用方在写入前用 boot_verify_image() 判定。
  */
 bool boot_image_write_header(uint32_t slot_id,
                              uint32_t version,
                              uint32_t image_size,
-                             uint32_t payload_crc32);
+                             uint32_t payload_crc32,
+                             uint8_t sig_algorithm,
+                             uint8_t pubkey_id,
+                             const uint8_t *signature);
 
 /**
  * @brief  校验一组向量表首两项是否可启动

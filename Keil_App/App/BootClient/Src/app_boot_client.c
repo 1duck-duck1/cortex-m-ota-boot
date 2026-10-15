@@ -5,20 +5,22 @@
  ******************************************************************************
  */
 #include "app_boot_client.h"
+
 #include "app_config.h"
 #include "ota_image.h"
+
 #include "stm32f4xx_hal.h"
 
 typedef struct
 {
-    uint32_t magic;
-    uint32_t request;
-    uint32_t confirmation;
-    uint32_t attempts;
-    uint32_t heartbeat;
-    uint32_t launched_slot;
-    uint32_t launch_flags;
-    uint32_t crc32;
+    uint32_t magic;         /**< APP_MAILBOX_MAGIC，整块内容有效的标志 */
+    uint32_t request;       /**< APP_MAGIC_REQUEST 时表示请求回到 Boot */
+    uint32_t confirmation;  /**< APP_MAGIC_CONFIRM 时表示确认试运行成功 */
+    uint32_t attempts;      /**< Boot 写入：本次启动是第几次试运行 */
+    uint32_t heartbeat;     /**< 本侧写入：仅供调试观察的存活计数 */
+    uint32_t launched_slot; /**< Boot 写入：本次实际启动的槽 */
+    uint32_t launch_flags;  /**< Boot 写入：APP_MAILBOX_FLAG_PENDING_LAUNCH 表示试运行启动 */
+    uint32_t crc32;         /**< 整块 CRC32，覆盖本字段之前的 28 字节 */
 } app_mailbox_t;
 
 static volatile app_mailbox_t *const s_mailbox =
@@ -31,11 +33,9 @@ static uint32_t app_mailbox_crc(void)
     uint32_t index;
     uint32_t bit;
 
-    for (index = 0u; index < 7u; index++)
-    {
+    for (index = 0u; index < 7u; index++) {
         crc ^= data[index];
-        for (bit = 0u; bit < 32u; bit++)
-        {
+        for (bit = 0u; bit < 32u; bit++) {
             crc = ((crc & 1u) != 0u) ?
                   ((crc >> 1u) ^ 0xEDB88320u) : (crc >> 1u);
         }
@@ -58,8 +58,7 @@ static bool app_mailbox_valid(void)
 
 static void app_mailbox_prepare(void)
 {
-    if (!app_mailbox_valid())
-    {
+    if (!app_mailbox_valid()) {
         s_mailbox->request = 0u;
         s_mailbox->confirmation = 0u;
         s_mailbox->attempts = 0u;
@@ -99,8 +98,7 @@ void app_boot_client_confirm_and_reset(void)
     NVIC_SystemReset();
 
     /* NVIC_SystemReset() 正常不会返回。 */
-    while (1)
-    {
+    while (1) {
         __WFI();
     }
 }
@@ -114,8 +112,7 @@ void app_boot_client_request_boot(void)
     NVIC_SystemReset();
 
     /* NVIC_SystemReset() 正常不会返回。 */
-    while (1)
-    {
+    while (1) {
         __WFI();
     }
 }

@@ -49,8 +49,7 @@ static void app_transport_sync(void)
     uint32_t delta;
 
     position = APP_TRANSPORT_RX_SIZE - __HAL_DMA_GET_COUNTER(app_transport_rx_dma());
-    if (position >= APP_TRANSPORT_RX_SIZE)
-    {
+    if (position >= APP_TRANSPORT_RX_SIZE) {
         /* NDTR 读到 SIZE（尚未收到任何字节）与读到 0（刚绕完一圈）是同一个
            缓冲位置，统一折算成 0，避免位置越界。 */
         position = 0u;
@@ -60,8 +59,7 @@ static void app_transport_sync(void)
     s_rx_hw_pos = position;
     s_rx_total += delta;
 
-    if ((s_rx_total - s_rx_read) > APP_TRANSPORT_RX_SIZE)
-    {
+    if ((s_rx_total - s_rx_read) > APP_TRANSPORT_RX_SIZE) {
         /* 消费者落后超过一整圈，落后的数据已被 DMA 覆盖。丢弃未取走的字节
            并置位：拿被覆盖过的数据去算 CRC 只会得到更难定位的失败。 */
         s_rx_read = s_rx_total;
@@ -71,8 +69,7 @@ static void app_transport_sync(void)
 
 void app_transport_init(void)
 {
-    if (s_is_ready)
-    {
+    if (s_is_ready) {
         return;
     }
 
@@ -85,8 +82,7 @@ void app_transport_init(void)
        并回填长度，收包期间会出现"来不及重启就丢字节"的窗口。这里改成
        CIRCULAR。usart.c 是生成文件，模式只在 App 初始化里覆盖，不改生成代码。 */
     app_transport_rx_dma()->Init.Mode = DMA_CIRCULAR;
-    if (HAL_DMA_Init(app_transport_rx_dma()) != HAL_OK)
-    {
+    if (HAL_DMA_Init(app_transport_rx_dma()) != HAL_OK) {
         return;
     }
 
@@ -97,8 +93,7 @@ void app_transport_init(void)
     if (HAL_DMA_Start(app_transport_rx_dma(),
                       (uint32_t)(uintptr_t)&USART2->DR,
                       (uint32_t)(uintptr_t)s_rx_buffer,
-                      APP_TRANSPORT_RX_SIZE) != HAL_OK)
-    {
+                      APP_TRANSPORT_RX_SIZE) != HAL_OK) {
         return;
     }
 
@@ -113,8 +108,7 @@ void app_transport_init(void)
 
 void app_transport_deinit(void)
 {
-    if (s_is_ready)
-    {
+    if (s_is_ready) {
         (void)HAL_DMA_Abort(app_transport_rx_dma());
         CLEAR_BIT(USART2->CR3, USART_CR3_DMAR);
         __HAL_UART_DISABLE_IT(&huart2, UART_IT_IDLE);
@@ -134,15 +128,13 @@ uint32_t app_transport_read(uint8_t *buffer, uint32_t size)
 {
     uint32_t count = 0u;
 
-    if (!s_is_ready || (buffer == NULL) || (size == 0u))
-    {
+    if (!s_is_ready || (buffer == NULL) || (size == 0u)) {
         return 0u;
     }
 
     app_transport_sync();
 
-    while ((count < size) && (s_rx_read != s_rx_total))
-    {
+    while ((count < size) && (s_rx_read != s_rx_total)) {
         buffer[count] = s_rx_buffer[s_rx_read & (APP_TRANSPORT_RX_SIZE - 1u)];
         s_rx_read++;
         count++;
@@ -153,16 +145,13 @@ uint32_t app_transport_read(uint8_t *buffer, uint32_t size)
 
 bool app_transport_write(const uint8_t *data, uint32_t size)
 {
-    if (!s_is_ready || (data == NULL))
-    {
+    if (!s_is_ready || (data == NULL)) {
         return false;
     }
-    if (size == 0u)
-    {
+    if (size == 0u) {
         return true;
     }
-    if (size > 0xFFFFu)
-    {
+    if (size > 0xFFFFu) {
         /* HAL 的长度参数是 uint16_t，超长说明调用方逻辑有误而不是链路问题。 */
         return false;
     }
@@ -180,23 +169,20 @@ bool app_transport_is_ready(void)
 
 void app_transport_irq_handler(void)
 {
-    if (!s_is_ready)
-    {
+    if (!s_is_ready) {
         return;
     }
 
     /* 先清 IDLE 再让 HAL_UART_IRQHandler() 跑（调用点在 USER CODE 0 区）：
        F4 的 HAL 会把残留的 IDLE 事件当成一次接收完成并回调 RxEventCallback，
        而本模块的接收不归 HAL 管，清干净它才会保持沉默。 */
-    if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE) != RESET)
-    {
+    if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE) != RESET) {
         __HAL_UART_CLEAR_IDLEFLAG(&huart2);
     }
 
     /* 溢出：F4 的清法是"读 SR 再读 DR"。不清的话后续字节会被持续丢弃，
        状态位一直挂着。溢出意味着有字节永久丢失，置位供 `info` 观察。 */
-    if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) != RESET)
-    {
+    if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) != RESET) {
         __HAL_UART_CLEAR_OREFLAG(&huart2);
         s_rx_overrun = true;
     }

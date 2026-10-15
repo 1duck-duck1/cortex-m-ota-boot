@@ -6,13 +6,13 @@
  */
 #include "boot_slot_writer.h"
 
-#include <string.h>
-
 #include "boot_conf.h"
 #include "boot_flash.h"
 #include "boot_image.h"
 #include "ota_crc32.h"
 #include "ota_image.h"
+
+#include <string.h>
 
 /**
  * @brief  校验一次写入请求的几何合法性
@@ -22,12 +22,10 @@
  */
 static bool boot_slot_writer_accepts(const boot_slot_writer_t *writer, uint32_t size)
 {
-    if (!writer->is_open || (size == 0u))
-    {
+    if (!writer->is_open || (size == 0u)) {
         return false;
     }
-    if (writer->written >= writer->expected_size)
-    {
+    if (writer->written >= writer->expected_size) {
         return false;
     }
 
@@ -41,37 +39,31 @@ bool boot_slot_writer_begin(boot_slot_writer_t *writer,
 {
     uint32_t base;
 
-    if (writer == NULL)
-    {
+    if (writer == NULL) {
         return false;
     }
 
     (void)memset(writer, 0, sizeof(*writer));
 
-    if ((slot_id != BOOT_SLOT_ID_A) && (slot_id != BOOT_SLOT_ID_B))
-    {
+    if ((slot_id != BOOT_SLOT_ID_A) && (slot_id != BOOT_SLOT_ID_B)) {
         return false;
     }
 
     /* 擦掉正在跑的槽等于把自己脚下的地板抽掉，必须挡住。 */
-    if ((protected_slot != BOOT_SLOT_ID_NONE) && (slot_id == protected_slot))
-    {
+    if ((protected_slot != BOOT_SLOT_ID_NONE) && (slot_id == protected_slot)) {
         return false;
     }
 
-    if ((expected_size == 0u) || (expected_size > (BOOT_SLOT_SIZE - OTA_IMAGE_LOAD_OFFSET)))
-    {
+    if ((expected_size == 0u) || (expected_size > (BOOT_SLOT_SIZE - OTA_IMAGE_LOAD_OFFSET))) {
         return false;
     }
 
     base = boot_flash_slot_base(slot_id);
-    if (base == 0u)
-    {
+    if (base == 0u) {
         return false;
     }
 
-    if (!boot_flash_erase_slot(slot_id))
-    {
+    if (!boot_flash_erase_slot(slot_id)) {
         return false;
     }
 
@@ -90,21 +82,18 @@ bool boot_slot_writer_write(boot_slot_writer_t *writer, const uint8_t *data, uin
     uint32_t remaining;
     uint32_t address;
 
-    if ((writer == NULL) || (data == NULL) || !boot_slot_writer_accepts(writer, size))
-    {
+    if ((writer == NULL) || (data == NULL) || !boot_slot_writer_accepts(writer, size)) {
         return false;
     }
 
     remaining = writer->expected_size - writer->written;
-    if (size > remaining)
-    {
+    if (size > remaining) {
         size = remaining;
     }
 
     address = writer->base + OTA_IMAGE_LOAD_OFFSET + writer->written;
 
-    if (!boot_flash_write(address, data, size))
-    {
+    if (!boot_flash_write(address, data, size)) {
         return false;
     }
 
@@ -119,19 +108,16 @@ bool boot_slot_writer_verify(const boot_slot_writer_t *writer, uint32_t *crc32_o
     uint32_t expected;
     uint32_t actual = 0u;
 
-    if ((writer == NULL) || (writer->written == 0u))
-    {
+    if ((writer == NULL) || (writer->written == 0u)) {
         return false;
     }
 
     expected = ota_crc32_final(writer->crc);
-    if (crc32_out != NULL)
-    {
+    if (crc32_out != NULL) {
         *crc32_out = expected;
     }
 
-    if (!boot_image_payload_crc(writer->slot_id, writer->written, &actual))
-    {
+    if (!boot_image_payload_crc(writer->slot_id, writer->written, &actual)) {
         return false;
     }
 
@@ -142,21 +128,17 @@ bool boot_slot_writer_finish(boot_slot_writer_t *writer,
                              uint32_t *image_size_out,
                              uint32_t *crc32_out)
 {
-    if (writer == NULL)
-    {
+    if (writer == NULL) {
         return false;
     }
-    if (!writer->is_open || (writer->written != writer->expected_size))
-    {
+    if (!writer->is_open || (writer->written != writer->expected_size)) {
         return false;
     }
 
-    if (image_size_out != NULL)
-    {
+    if (image_size_out != NULL) {
         *image_size_out = writer->written;
     }
-    if (crc32_out != NULL)
-    {
+    if (crc32_out != NULL) {
         *crc32_out = ota_crc32_final(writer->crc);
     }
 
@@ -167,8 +149,7 @@ bool boot_slot_writer_finish(boot_slot_writer_t *writer,
 
 void boot_slot_writer_abort(boot_slot_writer_t *writer)
 {
-    if (writer == NULL)
-    {
+    if (writer == NULL) {
         return;
     }
 

@@ -57,8 +57,7 @@ bool boot_mailbox_has_confirm(void)
 
 void boot_mailbox_consume_request(void)
 {
-    if (s_mailbox->request == 0u)
-    {
+    if (s_mailbox->request == 0u) {
         return;
     }
 
@@ -68,8 +67,7 @@ void boot_mailbox_consume_request(void)
 
 void boot_mailbox_consume_confirm(void)
 {
-    if (s_mailbox->confirmation == 0u)
-    {
+    if (s_mailbox->confirmation == 0u) {
         return;
     }
 
@@ -79,8 +77,7 @@ void boot_mailbox_consume_confirm(void)
 
 void boot_mailbox_reset(void)
 {
-    if (boot_mailbox_is_valid())
-    {
+    if (boot_mailbox_is_valid()) {
         return;
     }
 
@@ -105,8 +102,7 @@ void boot_mailbox_publish(uint32_t launched_slot, uint32_t launch_flags, uint32_
 
 uint32_t boot_mailbox_heartbeat(void)
 {
-    if (!boot_mailbox_is_valid())
-    {
+    if (!boot_mailbox_is_valid()) {
         return 0u;
     }
 
@@ -115,8 +111,7 @@ uint32_t boot_mailbox_heartbeat(void)
 
 uint32_t boot_mailbox_attempts(void)
 {
-    if (!boot_mailbox_is_valid())
-    {
+    if (!boot_mailbox_is_valid()) {
         return 0u;
     }
 
@@ -125,8 +120,7 @@ uint32_t boot_mailbox_attempts(void)
 
 uint32_t boot_mailbox_launched_slot(void)
 {
-    if (!boot_mailbox_is_valid())
-    {
+    if (!boot_mailbox_is_valid()) {
         return BOOT_SLOT_ID_NONE;
     }
 
@@ -135,8 +129,7 @@ uint32_t boot_mailbox_launched_slot(void)
 
 uint32_t boot_mailbox_launch_flags(void)
 {
-    if (!boot_mailbox_is_valid())
-    {
+    if (!boot_mailbox_is_valid()) {
         return 0u;
     }
 

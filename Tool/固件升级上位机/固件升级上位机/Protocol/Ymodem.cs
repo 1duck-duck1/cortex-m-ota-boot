@@ -59,10 +59,18 @@ internal static class Ymodem
     /// <param name="fileName">镜像文件名，仅用于设备侧日志。</param>
     /// <param name="fileSize">镜像字节数，必须与真实文件长度一致。</param>
     /// <param name="version">版本号，null 表示不声明。</param>
+    /// <param name="signature">64 字节 Ed25519 签名，null 表示不签名。</param>
+    /// <param name="pubkeyId">签名所用公钥编号，写入 <c>kid=</c> 字段。</param>
     /// <returns>可直接写出的完整帧。</returns>
-    public static byte[] BuildFileInfoPacket(string fileName, int fileSize, uint? version)
+    /// <remarks>
+    /// 第二字段形如 "<c>&lt;长度&gt; [0x版本] [sig=&lt;128 hex&gt;] [kid=&lt;2 hex&gt;]</c>"。
+    /// 128 字节的体装不下 filename + size + version + 132 字符的 sig 令牌，
+    /// 因此本包固定用 1024 字节长包（帧首 STX）承载。结束包不受影响，仍走 128 字节短包。
+    /// </remarks>
+    public static byte[] BuildFileInfoPacket(string fileName, int fileSize, uint? version,
+                                             byte[]? signature, byte pubkeyId)
     {
-        byte[] body = new byte[ShortPacketSize];
+        byte[] body = new byte[LongPacketSize];
         int position = 0;
 
         foreach (char ch in TrimFileName(fileName))
@@ -80,6 +88,14 @@ internal static class Ymodem
             field += " 0x" + version.Value.ToString("X8", CultureInfo.InvariantCulture);
         }
 
+        /* sig= 必须是恰好 128 个十六进制字符；kid= 只有随签名一起出现才有意义，
+           未签名时不得带任何 sig=/kid= 令牌。 */
+        if (signature is { Length: FirmwareSigner.SignatureLength })
+        {
+            field += " sig=" + Convert.ToHexString(signature);
+            field += " kid=" + pubkeyId.ToString("X2", CultureInfo.InvariantCulture);
+        }
+
         foreach (char ch in field)
         {
             body[position++] = (byte)ch;
@@ -87,7 +103,7 @@ internal static class Ymodem
 
         body[position] = 0x00;
 
-        return BuildFrame(0, body, ShortPacketSize);
+        return BuildFrame(0, body, LongPacketSize);
     }
 
     /// <summary>组装结束包。</summary>
@@ -145,6 +161,11 @@ internal static class Ymodem
     }
 
     /// <summary>截断过长的文件名，保证第 0 包的两个字段都装得下。</summary>
+    /// <remarks>
+    /// 文件名限 63 字符 + 结尾 '\0'；第二字段最坏情形约为
+    /// <c>size + " 0x" + 8 位版本 + " sig=" + 128 + " kid=" + 2</c>（约 160 字符），
+    /// 加上文件名仍远小于 1024 字节的体长，因此不会溢出。
+    /// </remarks>
     private static string TrimFileName(string fileName)
     {
         string name = Path.GetFileName(fileName);
