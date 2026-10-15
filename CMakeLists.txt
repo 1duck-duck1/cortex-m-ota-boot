@@ -67,6 +67,16 @@ set(OTA_HAL_SRC_NAMES
     stm32f4xx_hal_tim_ex.c
     stm32f4xx_hal_uart.c)
 
+# Boot 侧 CubeMX 已关掉 TIM2 与 USART2 的 TX/RX DMA：TIM 的源文件已从 Drivers 目录
+# 移除，DMA 的源文件还在但 Boot 全仓零处引用。App 侧两者都仍在使用，所以这里按目标
+# 各取一份，而不是把它们从共用列表里删掉
+set(OTA_BOOT_HAL_SRC_NAMES ${OTA_HAL_SRC_NAMES})
+list(REMOVE_ITEM OTA_BOOT_HAL_SRC_NAMES
+    stm32f4xx_hal_tim.c
+    stm32f4xx_hal_tim_ex.c
+    stm32f4xx_hal_dma.c
+    stm32f4xx_hal_dma_ex.c)
+
 # -ffunction-sections/-fdata-sections 配合 --gc-sections 才能按函数粒度裁剪，
 # 与 Keil 的段切分效果相当
 set(OTA_C_FLAGS -std=c99 -ffunction-sections -fdata-sections -Wall)
@@ -99,7 +109,7 @@ add_executable(boot
     ${OTA_BOOT_DIR}/Boot/Core/Src/boot_jump.c
     ${OTA_BOOT_DIR}/Core/Src/main.c
     ${OTA_BOOT_DIR}/Core/Src/gpio.c
-    ${OTA_BOOT_DIR}/Core/Src/tim.c
+    ${OTA_BOOT_DIR}/Core/Src/usart.c
     ${OTA_BOOT_DIR}/Core/Src/stm32f4xx_hal_msp.c
     ${OTA_BOOT_DIR}/Core/Src/stm32f4xx_it.c
     ${OTA_BOOT_DIR}/Core/Src/system_stm32f4xx.c
@@ -119,7 +129,7 @@ add_executable(boot
     ${OTA_BOOT_DIR}/Boot/Crypto/monocypher/monocypher-ed25519.c
     ${OTA_COMMON_SRC})
 
-foreach(name IN LISTS OTA_HAL_SRC_NAMES)
+foreach(name IN LISTS OTA_BOOT_HAL_SRC_NAMES)
   target_sources(boot PRIVATE "${OTA_BOOT_DIR}/Drivers/STM32F4xx_HAL_Driver/Src/${name}")
 endforeach()
 
@@ -144,9 +154,10 @@ target_compile_definitions(boot PRIVATE
     STM32F407xx
     OTA_BOOT_RAMCODE)
 
-# Keil 侧 Optim=3（-O2）。Boot 只有 32 KB 分区，且 GCC + newlib-nano 的产物比 Keil
-# 的 microlib 大约 1 KB，优化等级只能与之持平，不能再往上调
-ota_configure_target(boot -O2)
+# Keil 侧 Optim=3（-O2）实测 Code+RO+RW = 31808 B，占 32 KB 分区的 97.07%；GCC +
+# newlib-nano 若同为 -O2 会溢出 208 B，因为 nano 比 microlib 大约 1 KB。改用 -Os 压到
+# 29280 B（89.36%），余量留给 v0.3 的 IWDG 与自动回滚
+ota_configure_target(boot -Os)
 target_link_options(boot PRIVATE -T "${OTA_LINKER_DIR}/boot.ld"
     "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/boot.map")
 # 显式声明链接脚本为依赖：否则改动 .ld 不会触发重链接，改了个寂寞
