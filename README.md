@@ -99,8 +99,6 @@ Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx   ← Bootloader（0x08000000，64 K
 Keil_App/MDK-ARM/Keil_App.uvprojx             ← 应用工程（0x08020000，Slot A）
 ```
 
-烧录顺序与邮箱观察方法见 [实现详解 §6](docs/04-boot-implementation.md)。
-
 ### 首次上电与 `ota adopt`
 
 若 App 是调试器直烧进槽的（没走 Boot 的 YMODEM 接收），元数据里没有它的记录，Boot 不会跳转。此时从串口（USART2，115200-8-N-1）进 Boot CLI 补录：
@@ -141,17 +139,16 @@ ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推�
 │   ├── Drivers/              ST 官方代码
 │   └── MDK-ARM/              工程文件 + 链接脚本
 ├── Common/ota/               Boot 与 App 共享的硬件无关模块（YMODEM / CLI / CRC32 / 镜像头 / 升级请求）
-├── docs/                     设计与实现文档
 └── Tool/                     上位机（C# WinForms 固件升级工具，含 Ed25519 签名与 --genkey）
 ```
 
 > [!TIP]
-> 规划中的 `core` / `mcu` / `transport` 分层（纯逻辑层 PC 可测，见 [架构设计](docs/01-architecture.md)）将在 v0.2.0 引入传输层时落地，v0.1.0 按"最小闭环"纪律直接以 Keil 工程交付。
+> 规划中的 `core` / `mcu` / `transport` 分层（纯逻辑层 PC 可测）将在 v0.2.0 引入传输层时落地，v0.1.0 按"最小闭环"纪律直接以 Keil 工程交付。
 
 
 ## 🤝 贡献
 
-欢迎提交 Issue 与 PR。开始之前请阅读 [开发指南](docs/02-git-and-github.md)，其中包含提交规范与分支策略。
+欢迎提交 Issue 与 PR。
 
 - 🐛 发现 Bug → 提 Issue
 - 💡 有新想法 → 先提 Issue 讨论，避免做无用功

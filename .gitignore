@@ -88,6 +88,9 @@ secrets.h
 boot_keys/
 local_config.h
 
+# ---- 本地文档（仅保留在本地，不推送云端） ----
+docs/
+
 # ---- 操作系统 ----
 .DS_Store
 Thumbs.db
