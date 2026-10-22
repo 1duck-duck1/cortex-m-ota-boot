@@ -9,7 +9,6 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-STM32F407-orange.svg)](#-硬件要求)
 [![Language](https://img.shields.io/badge/language-C99-00599C.svg)](#-仓库结构)
-[![CI](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml/badge.svg)](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-贡献)
 
@@ -27,7 +26,6 @@
   - [🧰 工具链与版本](#-工具链与版本)
   - [🗺️ Flash 分区布局](#️-flash-分区布局)
   - [🚀 快速开始](#-快速开始)
-  - [🔍 特性对标](#-特性对标)
   - [📁 仓库结构](#-仓库结构)
   - [🤝 贡献](#-贡献)
   - [📄 许可证](#-许可证)
@@ -63,13 +61,9 @@
 
 
 ## 🧰 工具链与版本
-
 | 工具 | 版本（实测） | 用途 |
 |---|---|---|
 | Keil MDK-ARM | 5.38+，ARM Compiler 5（V5.06 update 7 / build 960） | Boot / App 的 Keil 工程 |
-| arm-none-eabi-gcc | xPack 15.2.1（20251203）；CI 使用发行版 `gcc-arm-none-eabi` | GCC 构建路径 |
-| CMake | ≥ 3.20，实测 4.4.4 | 构建系统 |
-| Ninja | 1.12.1 | CMake 生成器 |
 | .NET SDK | 10.0，目标框架 `net10.0-windows` | C# 上位机 |
 | STM32CubeMX | 6.13.0 | 生成 Core / HAL 工程骨架 |
 | STM32F4 HAL / CMSIS | 仓库内 vendored 最小子集 | 芯片驱动 |
@@ -98,10 +92,6 @@
 
 ## 🚀 快速开始
 
-两条构建路径，产物地址与分区逐项一致，按手头工具任选其一。
-
-### 方式一：Keil MDK-ARM
-
 用 Keil 分别打开两个工程，编译并烧录：
 
 ```text
@@ -110,28 +100,6 @@ Keil_App/MDK-ARM/Keil_App.uvprojx             ← 应用工程（0x08020000，Sl
 ```
 
 烧录顺序与邮箱观察方法见 [实现详解 §6](docs/04-boot-implementation.md)。
-
-### 方式二：CMake + arm-none-eabi-gcc
-
-无需 Keil 授权，三目标一次编出：
-
-```bash
-git clone https://github.com/1duck-duck1/cortex-m-ota-boot.git
-cd cortex-m-ota-boot
-cmake -B build/f407 -G Ninja -DBOARD=stm32f407_demo
-cmake --build build/f407
-```
-
-产物落在 `build/f407/`：
-
-| 目标 | 产物 | 烧录地址 | 说明 |
-|---|---|---|---|
-| `boot` | `boot.hex` / `boot.bin` | `0x08000000` | Bootloader，占 sector 0-3 共 64 KB |
-| `app_slot_a` | `app_slot_a.hex` / `.bin` | `0x08020200` | App，链接于槽首 +0x200 |
-| `app_slot_b` | `app_slot_b.hex` / `.bin` | `0x08080200` | App（Slot B） |
-
-> [!IMPORTANT]
-> App 的链接基址 `0x08020200` 落在页内偏移 0x200，链接器会把首个 LOAD 段下对齐到 `0x08020000`。**用调试器直烧 `.elf` 会把槽首头区写成 ELF 头字节**，请一律烧 `.hex` / `.bin`（两者起始地址已是 `0x08020200`）。
 
 ### 首次上电与 `ota adopt`
 
@@ -158,20 +126,7 @@ ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推�
 > [!TIP]
 > `v0.3.0` 是项目的质变点：它证明"任意时刻断电都能恢复"这条不变式真的成立。这条验收标准是硬性的 —— 做不到就回退重构，不许用"多试几次就好了"掩盖。
 
-## 🔍 特性对标
-
-对标 MCUboot · OpenBLT · stm32-bootloader · X-CUBE-SBSFU · TinyUF2 等主流实现，提炼出六个可独立裁剪的维度；每个版本的路线都对应"达到某项目某项能力"：
-
-| 维度 | 本项目路线 |
-|---|---|
-| 传输通道 | UART-YMODEM（v0.2）→ CAN / USB-DFU / UF2（v1.0+ 候选） |
-| 槽策略 | A/B 双槽，切换仅提交元数据 |
-| 安全等级 | CRC（v0.2）→ **Ed25519 签名（已落地）** + 防回滚（v0.4） |
-| 回滚机制 | 计数器确认（F-04）→ 状态机自动回滚（v0.3） |
-| 入口方式 | App 回跳请求 → 超时窗口（候选） |
-| 元数据存放 | `.noinit` SRAM 邮箱（运行期）+ Flash 追加日志（持久期，独占 sector 11） |
-
-## 📁 仓库结构
+##  仓库结构
 
 ```text
 .
@@ -185,11 +140,9 @@ ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推�
 │   ├── Core/                 CubeMX 生成（USART1/2 · TIM2）
 │   ├── Drivers/              ST 官方代码
 │   └── MDK-ARM/              工程文件 + 链接脚本
-├── cmake/                    GCC 工具链文件、启动文件与三个链接脚本（boot / app_slot_a / app_slot_b）
 ├── Common/ota/               Boot 与 App 共享的硬件无关模块（YMODEM / CLI / CRC32 / 镜像头 / 升级请求）
-├── Tool/                     上位机（C# WinForms 固件升级工具，含 Ed25519 签名与 --genkey）
 ├── docs/                     设计与实现文档
-└── .github/workflows/        CI
+└── Tool/                     上位机（C# WinForms 固件升级工具，含 Ed25519 签名与 --genkey）
 ```
 
 > [!TIP]
