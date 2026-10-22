@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/platform-STM32F407-orange.svg)](#-硬件要求)
 [![Language](https://img.shields.io/badge/language-C99-00599C.svg)](#-仓库结构)
 [![CI](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml/badge.svg)](https://github.com/1duck-duck1/cortex-m-ota-boot/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v0.2.0--dev-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](CHANGELOG.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-贡献)
 
 </div>
