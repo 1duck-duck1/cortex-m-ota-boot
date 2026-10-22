@@ -1,12 +1,14 @@
 /**
  ******************************************************************************
  * @file    boot_metadata.h
- * @brief   Metadata 双副本：active / pending 槽记录与试运行计数
+ * @brief   Metadata 追加日志：active / pending 槽记录与试运行计数
  *
- * Metadata 是"哪个槽该跑"的唯一权威，掉电安全靠两份副本轮流写实现：
- * 永远只写 sequence 较小的那一份，写入时 sequence 加一，crc32 放在最后写。
- * 任何时刻至少有一份是完整的——正在被写的那份即使被掉电打断也只是作废，
- * 开机取"crc32 自洽且 sequence 最大"的一份即可，不需要日志或双阶段提交。
+ * Metadata 是"哪个槽该跑"的唯一权威，落在 sector 11 的追加日志里：
+ * 每条记录占 32 字节，按顺序往后写，写满整个扇区才整扇区擦除回收一次。
+ * 追加写本身是掉电安全的——半截记录 CRC32 不通过，开机扫描取
+ * "crc32 自洽且 sequence 最大"的一条即可，前一条仍然有效。
+ * 唯一的无记录窗口是日志写满后整扇区擦除到新记录写完之间，此时设备会以
+ * 默认值（无 active / pending）停在升级模式，可恢复但不会自动启动 App。
  *
  * 记录里只放槽编号与计数，不放版本号与长度：那些属于镜像头，从镜像本身读，
  * 避免同一份信息在两个地方各存一份后慢慢分歧。
@@ -20,7 +22,7 @@
 
 #include "boot_conf.h"
 
-/** Metadata 的落盘布局，整体 32 字节，写在一份副本扇区的起始处 */
+/** Metadata 的落盘布局，整体 32 字节，作为追加日志的一条记录写入 */
 typedef struct
 {
     uint32_t magic;         /**< BOOT_METADATA_MAGIC */
@@ -36,10 +38,10 @@ typedef struct
 /**
  * @brief  读出最新的 Metadata
  * @param  metadata 读出结果，不可为 NULL
- * @return true 表示盘上确实存在一份自洽的副本
- * @retval false 两份副本都不可信，此时 metadata 已被填入默认值
+ * @return true 表示日志里确实存在一条自洽记录
+ * @retval false 日志里没有可用记录，此时 metadata 已被填入默认值
  * @note   无论返回值如何，metadata 都会被填成一份可直接使用的内容：
- *         找不到副本时用 boot_metadata_defaults() 兜底（active / pending 均为
+ *         找不到记录时用 boot_metadata_defaults() 兜底（active / pending 均为
  *         NONE，试运行上限取 BOOT_DEFAULT_MAX_ATTEMPTS）。返回值只表达
  *         "盘上有没有"，供启动决策区分"首次上电"与"读到过记录"。
  */
@@ -50,8 +52,9 @@ bool boot_metadata_load(boot_metadata_t *metadata);
  * @param  metadata 待落盘的内容，sequence 字段被忽略
  * @return true 表示已落盘且可被读出
  * @retval false 写入或回读校验失败
- * @note   写入目标是"当前 sequence 较小的那份副本"以保住另一份；新序号取两份
- *         中较大者加一。crc32 由本函数统一计算与填写，调用方填的值无效。
+ * @note   记录追加到日志的下一个擦除态位置；只有日志写满时才整扇区擦除回收。
+ *         新序号取日志中最大序号加一。crc32 由本函数统一计算与填写，
+ *         调用方填的值无效。
  */
 bool boot_metadata_save(const boot_metadata_t *metadata);
 

@@ -6,7 +6,7 @@
 # 地址、分区、栈大小必须逐项一致（对照表见 docs）。
 #
 # 目标产物：
-#   boot         Bootloader  链接于 0x08000000（sector 0-1，整块 32 KB）
+#   boot         Bootloader  链接于 0x08000000（sector 0-3，整块 64 KB）
 #   app_slot_a   App（Slot A）链接于 0x08020200
 #   app_slot_b   App（Slot B）链接于 0x08080200
 #

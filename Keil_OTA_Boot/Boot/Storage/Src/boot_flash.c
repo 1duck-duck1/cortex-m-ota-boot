@@ -243,36 +243,43 @@ BOOT_RAMFUNC bool boot_flash_write(uint32_t address, const uint8_t *data, uint32
     return result;
 }
 
-BOOT_RAMFUNC bool boot_flash_write_metadata(uint32_t copy_index,
+BOOT_RAMFUNC bool boot_flash_erase_metadata(void)
+{
+    uint32_t sector = boot_flash_sector_of(BOOT_METADATA_ADDR);
+
+    /* Metadata 日志必须恰好等于最后一个扇区：日志写满靠整扇区擦除回收，
+       几何配错时擦除会波及 Slot B。 */
+    if ((sector == BOOT_FLASH_SECTOR_INVALID) ||
+        (s_sector_address[sector] != BOOT_METADATA_ADDR) ||
+        (BOOT_METADATA_SIZE != ((BOOT_FLASH_BASE + BOOT_FLASH_SIZE) - BOOT_METADATA_ADDR))) {
+        return false;
+    }
+
+    return boot_flash_erase_sector(sector);
+}
+
+BOOT_RAMFUNC bool boot_flash_write_metadata(uint32_t address,
                                             const void *data,
                                             uint32_t size)
 {
-    uint32_t address;
-    uint32_t sector;
+    uint32_t offset;
     bool result;
 
-    if (copy_index == 0u) {
-        address = BOOT_METADATA_A_ADDR;
-    } else if (copy_index == 1u) {
-        address = BOOT_METADATA_B_ADDR;
-    } else {
+    if ((data == NULL) || (size == 0u) || (size > BOOT_METADATA_SIZE) ||
+        ((address & 0x3u) != 0u)) {
         return false;
     }
 
-    if ((data == NULL) || (size == 0u) || (size > BOOT_METADATA_SIZE)) {
+    if (address < BOOT_METADATA_ADDR) {
+        return false;
+    }
+    offset = address - BOOT_METADATA_ADDR;
+    if (offset > (BOOT_METADATA_SIZE - size)) {
         return false;
     }
 
-    sector = boot_flash_sector_of(address);
-    if ((sector == BOOT_FLASH_SECTOR_INVALID) || (s_sector_address[sector] != address)) {
-        return false;
-    }
-
-    /* 先擦后写：Flash 只能把 1 写成 0，同一份副本二次写入前必须回到全 1。 */
-    if (!boot_flash_erase_sector(sector)) {
-        return false;
-    }
-
+    /* 追加写：调用方保证目标位置还是擦除态，这里不做整扇区擦除，
+       否则会把日志里更早的记录一起抹掉。 */
     (void)HAL_FLASH_Unlock();
     __HAL_FLASH_CLEAR_FLAG(BOOT_FLASH_ERROR_FLAGS);
 

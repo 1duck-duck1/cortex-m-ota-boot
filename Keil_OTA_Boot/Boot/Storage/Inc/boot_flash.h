@@ -51,7 +51,7 @@ uint32_t boot_flash_other_slot(uint32_t slot_id);
  * @param  address 起始地址
  * @param  size    字节数，必须大于 0
  * @return true 表示整段落在 Slot A 或 Slot B 内
- * @note   Boot 区、Metadata 区、NVS 区与预留区都不在任何槽的区间里，
+ * @note   Boot 区、Metadata 区与 NVS 区都不在任何槽的区间里，
  *         因此天然被这一条挡掉。
  */
 bool boot_flash_range_in_slot(uint32_t address, uint32_t size);
@@ -91,13 +91,22 @@ BOOT_RAMFUNC bool boot_flash_erase_nvs(void);
 BOOT_RAMFUNC bool boot_flash_write(uint32_t address, const uint8_t *data, uint32_t size);
 
 /**
- * @brief  写入一份 Metadata（先擦扇区再写）
- * @param  copy_index 副本编号，0 对应 Metadata A，1 对应 Metadata B
- * @param  data       数据指针
- * @param  size       字节数，必须大于 0 且不超过扇区容量
- * @return true 表示已落盘
+ * @brief  擦除整个 Metadata 日志扇区（sector 11，128 KB）
+ * @return true 表示擦除完成
+ * @note   仅在日志写满、需要回收整扇区时调用，耗时为秒级。
  */
-BOOT_RAMFUNC bool boot_flash_write_metadata(uint32_t copy_index,
+BOOT_RAMFUNC bool boot_flash_erase_metadata(void);
+
+/**
+ * @brief  向 Metadata 日志区追加一条记录（不擦除）
+ * @param  address 目标地址，必须 4 字节对齐且落在 Metadata 区内
+ * @param  data    数据指针
+ * @param  size    字节数，必须大于 0 且不越过 Metadata 区末尾
+ * @return true 表示已落盘
+ * @note   调用方必须保证目标位置处于擦除态；本函数不做整扇区擦除，
+ *         否则会把日志里更早的记录一起抹掉。
+ */
+BOOT_RAMFUNC bool boot_flash_write_metadata(uint32_t address,
                                             const void *data,
                                             uint32_t size);
 

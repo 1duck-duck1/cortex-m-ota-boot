@@ -3,9 +3,9 @@
  * @file    boot.ld
  * @brief   Bootloader 的 GCC 链接脚本，分区与 boot_conf.h / Keil_OTA_Boot.sct 一致
  *
- * Flash：0x08000000 起 32 KB（sector 0-1），整块交给链接器排布。Keil 的 scatter
- * 把这块切成"31 KB 普通代码 + 1 KB RAM 函数初值副本"两段，GCC 侧直接合成一段：
- * 32 KB 才是真正不可越过的界，内部劈开只是把可用的余量钉死，反而更容易溢出。
+ * Flash：0x08000000 起 64 KB（sector 0-3），整块交给链接器排布。Keil 的 scatter
+ * 把这块切成"63 KB 普通代码 + 1 KB RAM 函数初值副本"两段，GCC 侧直接合成一段：
+ * 64 KB 才是真正不可越过的界，内部劈开只是把可用的余量钉死，反而更容易溢出。
  * 超限时链接器直接报 region overflow，不会悄悄挤掉别的东西。
  *
  * SRAM2 顶部 32 字节 0x2001FFE0 是 Boot 邮箱，两端都不分配：RAM2 区长度被截到
@@ -22,7 +22,7 @@ ENTRY(Reset_Handler)
 
 MEMORY
 {
-  FLASH       (rx)  : ORIGIN = 0x08000000, LENGTH = 0x00008000  /* Boot 全部分区，sector 0-1 */
+  FLASH       (rx)  : ORIGIN = 0x08000000, LENGTH = 0x00010000  /* Boot 全部分区，sector 0-3 */
   RAM         (rw)  : ORIGIN = 0x20000000, LENGTH = 0x0001B800  /* 主 SRAM，上界让给 RAM 函数 */
   RAMCODE_RAM (rw)  : ORIGIN = 0x2001B800, LENGTH = 0x00000400  /* 擦写函数的运行地址 */
   RAM2        (rw)  : ORIGIN = 0x2001BC00, LENGTH = 0x000043E0  /* SRAM2，尾部 32 字节是邮箱 */

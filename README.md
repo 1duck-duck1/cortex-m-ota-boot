@@ -63,7 +63,7 @@
 | 只把 F407 这一件事做透：12 个大小不均的 sector 全部对齐，无"理论可用但没在真板验证"的分支 | 通用项目往往留着一堆没验过的移植分支 |
 | 掉电安全提供**可复现的测试数据**，而非仅声称支持 | 多数项目只写一句"支持掉电恢复" |
 | 核心逻辑可在 **PC 上单元测试**，包括断电注入测试 | 几乎没有同类项目做 |
-| 分区与数据格式**按 sector 粒度推导并写进文档**，含"元数据双副本必须跨 sector"这类硬约束 | 分区表往往一句话带过，坑留给使用者踩 |
+| 分区与数据格式**按 sector 粒度推导并写进文档**，含"元数据日志必须独占整个擦除单元"这类硬约束 | 分区表往往一句话带过，坑留给使用者踩 |
 
 ## 🔧 硬件要求
 
@@ -79,18 +79,17 @@
 
 | 区域 | 地址范围 | 大小 | 占用 sector |
 |---|---|---|---|
-| Bootloader | `0x08000000` – `0x08007FFF` | 32 KB | 0 – 1 |
-| Metadata | `0x08008000` – `0x0800FFFF` | 32 KB | 2 – 3 |
-| 参数数据区 | `0x08010000` – `0x0801FFFF` | 64 KB | 4 |
+| Bootloader | `0x08000000` – `0x0800FFFF` | 64 KB | 0 – 3 |
+| 参数数据区（NVS） | `0x08010000` – `0x0801FFFF` | 64 KB | 4 |
 | Slot A | `0x08020000` – `0x0807FFFF` | 384 KB | 5 – 7 |
 | Slot B | `0x08080000` – `0x080DFFFF` | 384 KB | 8 – 10 |
-| 保留 | `0x080E0000` – `0x080FFFFF` | 128 KB | 11 |
+| Metadata | `0x080E0000` – `0x080FFFFF` | 128 KB | 11 |
 
 > [!IMPORTANT]
-> **元数据为什么占两个 sector**：F4 的擦除单元是整个 sector。双副本若挤在同一个 sector 里，擦除其中一份会连另一份一起擦掉，"任意时刻至少一份有效"这条掉电安全地基就不成立了。所以两份副本必须各占一个独立 sector。
+> **Metadata 为什么是追加日志**：F4 的擦除单元是整个 sector。sector 11 只有一个擦除单元，放不下两份互相独立的副本，因此改为扇区内追加写：每条记录 32 字节，写满整个扇区才擦除回收一次。追加写本身掉电安全（半截记录 CRC 不通过，上一条仍有效）；唯一的无记录窗口是日志写满后整扇区擦除到新记录写完之间，此时设备停在升级模式，可恢复但不会自动启动 App。
 
 > [!NOTE]
-> 两槽**等大**（各 384 KB），打包工具只需一条容量规则。sector 4 是唯一的 64 KB sector，划入任一槽都会破坏等容，因此独立作参数数据区（NVS 预留）；sector 11 整块保留，擦除任一槽都不波及其他区域，保留区可存放需长期存活的数据（如救援镜像、崩溃日志）。
+> 两槽**等大**（各 384 KB），打包工具只需一条容量规则。sector 5–11 共 7 个 128 KB 扇区，是奇数，无法等分成两个 448 KB；384 + 384 之后必然剩下一个扇区，正好留给 Metadata。sector 4 是唯一的 64 KB 扇区，划入任一槽都会破坏等容，因此独立作参数数据区（NVS）。
 
 ## 🏗️ 架构
 
@@ -101,7 +100,7 @@ flowchart TD
     subgraph CORE["core/ ── 纯逻辑层（零硬件依赖 · PC 可测）"]
         direction LR
         C1["boot_fsm<br/>升级状态机"]
-        C2["boot_meta<br/>元数据双副本"]
+        C2["boot_meta<br/>元数据追加日志"]
         C3["boot_image<br/>固件头解析"]
         C4["boot_proto<br/>YMODEM / 命令"]
         C5["boot_flash<br/>通用 Flash 操作"]
@@ -179,10 +178,10 @@ flowchart TD
 | F-06 | YMODEM 接收（含重传与超时） | ✅ `boot_update` + `Common/ota/ota_ymodem` |
 | F-08 | 固件头解析 | ✅ `Common/ota/ota_image` + `boot_image` |
 | F-09 | 固件合法性校验 | ✅ 镜像头自洽 + 载荷 CRC32 + SP/PC |
-| F-10 | 元数据双副本原子更新 | ✅ `boot_metadata` 双副本 load/save，随升级链路串联 |
+| F-10 | 元数据追加日志更新 | ✅ `boot_metadata` 扇区内追加写 load/save，随升级链路串联 |
 | F-11 | 升级状态机 | ✅ `boot_update_state_t` 接收会话状态机 |
 | F-12 | A/B 分区切换 | ✅ mark_pending / confirm / clear_pending |
-| F-13 | 掉电安全 | 🚧 元数据双副本 + 邮箱已就绪，断电注入测试待 v0.3 |
+| F-13 | 掉电安全 | 🚧 元数据追加日志 + 邮箱已就绪，断电注入测试待 v0.3 |
 | F-14 | 启动失败自动回滚 | 🚧 计数耗尽回滚已连通；无看门狗，卡死固件需自身复位（v0.3） |
 | F-15 | 应用侧确认接口 | ✅ `app_boot_client_confirm_and_reset()` |
 | F-16 | 自身分区写保护 | ✅ 目标槽由 Boot 推导，受保护槽不擦除 |
@@ -217,7 +216,7 @@ Bootloader 自更新、差分升级、云平台/服务器端、图形化上位�
 用 Keil 分别打开两个工程，编译并烧录：
 
 ```text
-Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx   ← Bootloader（0x08000000，32 KB 边界）
+Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx   ← Bootloader（0x08000000，64 KB 边界）
 Keil_App/MDK-ARM/Keil_App.uvprojx             ← 应用工程（0x08020000，Slot A）
 ```
 
@@ -238,7 +237,7 @@ cmake --build build/f407
 
 | 目标 | 产物 | 烧录地址 | 说明 |
 |---|---|---|---|
-| `boot` | `boot.hex` / `boot.bin` | `0x08000000` | Bootloader，占 sector 0-1 共 32 KB |
+| `boot` | `boot.hex` / `boot.bin` | `0x08000000` | Bootloader，占 sector 0-3 共 64 KB |
 | `app_slot_a` | `app_slot_a.hex` / `.bin` | `0x08020200` | App，链接于槽首 +0x200 |
 | `app_slot_b` | `app_slot_b.hex` / `.bin` | `0x08080200` | App（Slot B） |
 
@@ -292,7 +291,7 @@ ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推�
 | 安全等级 | CRC（v0.2）→ **Ed25519 签名（已落地）** + 防回滚（v0.4） |
 | 回滚机制 | 计数器确认（F-04）→ 状态机自动回滚（v0.3） |
 | 入口方式 | App 回跳请求 → 超时窗口（候选） |
-| 元数据存放 | `.noinit` SRAM 邮箱（运行期）+ Flash 双副本（持久期） |
+| 元数据存放 | `.noinit` SRAM 邮箱（运行期）+ Flash 追加日志（持久期，独占 sector 11） |
 
 > [!TIP]
 > 裁剪 = 编译期关闭 `boot_conf.h` 开关，未选中的模块不进固件。完整对标矩阵与裁剪纪律见 [生态对标](docs/05-bootloader-landscape.md)。
@@ -305,7 +304,7 @@ ota recv 0x00020000        # 进入 YMODEM 等待，目标槽由 Boot 自行推�
 │   ├── Boot/                 业务模块（Config / Core / Mailbox / Storage / Protocol / Crypto）
 │   ├── Core/                 CubeMX 生成（时钟 / GPIO / 中断）
 │   ├── Drivers/              ST 官方代码（CMSIS + HAL 最小子集）
-│   └── MDK-ARM/              工程文件 + 链接脚本（32 KB 边界）
+│   └── MDK-ARM/              工程文件 + 链接脚本（64 KB 边界）
 ├── Keil_App/                 应用工程（Keil MDK-ARM，链接到 Slot A 0x08020200）
 │   ├── App/                  业务模块（Config / Platform / Services / BootClient）
 │   ├── Core/                 CubeMX 生成（USART1/2 · TIM2）

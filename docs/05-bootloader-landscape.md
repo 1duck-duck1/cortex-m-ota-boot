@@ -58,7 +58,7 @@ flowchart TB
 
     subgraph CORE["core/ 纯逻辑层（PC 可测）"]
         PROTO["boot_proto<br/>YMODEM / 命令（传输协议）"]
-        META["boot_meta<br/>双副本 + 版本号（槽策略/防回滚）"]
+        META["boot_meta<br/>追加日志 + 版本号（槽策略/防回滚）"]
         IMAGE["boot_image<br/>CRC → SHA256 → 签名（安全等级）"]
         FSM["boot_fsm<br/>状态机（回滚机制）"]
     end
@@ -93,7 +93,7 @@ flowchart TB
 | 版本 | 本项目内容 | 达到的对标能力 |
 |:---:|---|---|
 | v0.1.0 ✅ | 双向跳转闭环 | AN2606 ROM 的"能进能跳"+ 独有的 App 确认语义 |
-| v0.2.0 🚧 | UART + YMODEM、Flash 双槽、元数据双副本、CRC | **AN4023 全量 + 其不具备的掉电安全元数据** |
+| v0.2.0 🚧 | UART + YMODEM、Flash 双槽、元数据追加日志、CRC | **AN4023 全量 + 其不具备的掉电安全元数据** |
 | v0.3.0 | 掉电安全状态机 + 计数回滚 | stm32-bootloader 的测试方法；ESP32 的试运行回滚语义 |
 | v0.4.0 🚧 | Ed25519 签名（X-01 已落地）+ 防回滚（X-02 待做） | **MCUboot / SBSFU 的安全能力**（曲线更小：Ed25519 vs ECDSA） |
 | v0.5.0 | Python 上位机（pip 可装） | OpenBLT 的 MicroBoot 定位 |

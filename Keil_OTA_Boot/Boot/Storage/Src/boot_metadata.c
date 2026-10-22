@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    boot_metadata.c
- * @brief   Metadata 双副本读写实现
+ * @brief   Metadata 追加日志读写实现
  ******************************************************************************
  */
 #include "boot_metadata.h"
@@ -13,6 +13,10 @@
 
 /** 参与 crc32 计算的字节数：整条记录去掉末尾的 crc32 字段 */
 #define BOOT_METADATA_CRC_SPAN     ((uint32_t)(sizeof(boot_metadata_t) - 4u))
+
+/** 单条记录在日志中的占位与整个扇区能容纳的条数 */
+#define BOOT_METADATA_SLOT_SIZE    ((uint32_t)sizeof(boot_metadata_t))
+#define BOOT_METADATA_SLOT_COUNT   (BOOT_METADATA_SIZE / BOOT_METADATA_SLOT_SIZE)
 
 /**
  * @brief  计算一条 Metadata 的 crc32
@@ -58,64 +62,114 @@ static bool boot_metadata_verify(const boot_metadata_t *metadata)
     return (metadata->crc32 == boot_metadata_crc(metadata));
 }
 
+/** 日志扫描结果缓存：load 之后 save 可直接续写，避免每次重复扫描整个扇区 */
+static uint32_t s_next_slot;
+static uint32_t s_max_sequence;
+static bool s_log_ready;
+
 /**
- * @brief  读出指定副本并校验
- * @param  copy_index 副本编号，0 为 Metadata A，1 为 Metadata B
- * @param  metadata   读出结果，不可为 NULL
- * @return true 表示该副本存在且自洽
- * @note   读失败或不自洽时，metadata 会被清零，避免调用方误用半截内容。
+ * @brief  取日志中第 index 条记录的地址
+ * @param  index 记录下标
+ * @return 记录地址
  */
-static bool boot_metadata_read_copy(uint32_t copy_index, boot_metadata_t *metadata)
+static uint32_t boot_metadata_slot_address(uint32_t index)
 {
+    return BOOT_METADATA_ADDR + (index * BOOT_METADATA_SLOT_SIZE);
+}
+
+/**
+ * @brief  扫描整个日志，找出最新记录与下一条可写位置
+ * @param  latest       最新记录，找到时写入
+ * @param  max_sequence 最新记录的序号
+ * @param  next_slot    第一个处于擦除态的记录位；日志写满时为总数
+ * @return true 表示至少有一条自洽记录
+ * @note   不依赖"第一条擦除态记录就是日志末尾"的假设：编程失败的记录位会
+ *         变成非擦除态的残迹，所以必须扫完整个扇区。
+ */
+static bool boot_metadata_scan(boot_metadata_t *latest,
+                               uint32_t *max_sequence,
+                               uint32_t *next_slot)
+{
+    boot_metadata_t record;
+    uint32_t magic;
     uint32_t address;
+    uint32_t index;
+    bool found = false;
 
-    (void)memset(metadata, 0, sizeof(*metadata));
+    *max_sequence = 0u;
+    *next_slot = BOOT_METADATA_SLOT_COUNT;
 
-    if (copy_index == 0u) {
-        address = BOOT_METADATA_A_ADDR;
-    } else if (copy_index == 1u) {
-        address = BOOT_METADATA_B_ADDR;
-    } else {
-        return false;
+    for (index = 0u; index < BOOT_METADATA_SLOT_COUNT; index++) {
+        address = boot_metadata_slot_address(index);
+
+        if (!boot_flash_read(address, (uint8_t *)&magic, (uint32_t)sizeof(magic))) {
+            return found;
+        }
+        if (magic == 0xFFFFFFFFu) {
+            if (*next_slot == BOOT_METADATA_SLOT_COUNT) {
+                *next_slot = index;
+            }
+            continue;
+        }
+
+        if (!boot_flash_read(address, (uint8_t *)&record, (uint32_t)sizeof(record))) {
+            return found;
+        }
+        if (!boot_metadata_verify(&record)) {
+            continue;
+        }
+
+        if (!found || (record.sequence >= *max_sequence)) {
+            *latest = record;
+            *max_sequence = record.sequence;
+            found = true;
+        }
     }
 
-    if (!boot_flash_read(address, (uint8_t *)metadata, (uint32_t)sizeof(*metadata))) {
-        return false;
-    }
+    return found;
+}
 
-    if (!boot_metadata_verify(metadata)) {
-        (void)memset(metadata, 0, sizeof(*metadata));
-        return false;
-    }
+/**
+ * @brief  把写指针推进到下一个擦除态记录位
+ * @note   编程失败会在当前位置留下非擦除态残迹，不能直接复用。
+ */
+static void boot_metadata_seek_free(void)
+{
+    uint32_t magic;
 
-    return true;
+    while (s_next_slot < BOOT_METADATA_SLOT_COUNT) {
+        if (!boot_flash_read(boot_metadata_slot_address(s_next_slot),
+                             (uint8_t *)&magic, (uint32_t)sizeof(magic))) {
+            s_next_slot = BOOT_METADATA_SLOT_COUNT;
+            return;
+        }
+        if (magic == 0xFFFFFFFFu) {
+            return;
+        }
+        s_next_slot++;
+    }
 }
 
 bool boot_metadata_load(boot_metadata_t *metadata)
 {
-    boot_metadata_t copy_a;
-    boot_metadata_t copy_b;
-    bool valid_a;
-    bool valid_b;
+    boot_metadata_t latest;
+    uint32_t max_sequence;
+    uint32_t next_slot;
+    bool found;
 
     if (metadata == NULL) {
         return false;
     }
 
-    valid_a = boot_metadata_read_copy(0u, &copy_a);
-    valid_b = boot_metadata_read_copy(1u, &copy_b);
+    (void)memset(&latest, 0, sizeof(latest));
+    found = boot_metadata_scan(&latest, &max_sequence, &next_slot);
 
-    if (valid_a && valid_b) {
-        /* 两份都自洽时取序号大的；序号相同说明写入侧出了问题，取 A 保守处理。 */
-        *metadata = (copy_a.sequence >= copy_b.sequence) ? copy_a : copy_b;
-        return true;
-    }
-    if (valid_a) {
-        *metadata = copy_a;
-        return true;
-    }
-    if (valid_b) {
-        *metadata = copy_b;
+    s_next_slot = next_slot;
+    s_max_sequence = max_sequence;
+    s_log_ready = true;
+
+    if (found) {
+        *metadata = latest;
         return true;
     }
 
@@ -126,58 +180,70 @@ bool boot_metadata_load(boot_metadata_t *metadata)
 
 bool boot_metadata_save(const boot_metadata_t *metadata)
 {
-    boot_metadata_t copy_a;
-    boot_metadata_t copy_b;
     boot_metadata_t record;
-    uint32_t valid_a;
-    uint32_t valid_b;
-    uint32_t sequence_a;
-    uint32_t sequence_b;
-    uint32_t max_sequence;
-    uint32_t target;
-    bool written;
+    boot_metadata_t readback;
+    uint32_t address;
+    uint32_t sequence;
 
     if (metadata == NULL) {
         return false;
     }
 
-    valid_a = boot_metadata_read_copy(0u, &copy_a) ? 1u : 0u;
-    valid_b = boot_metadata_read_copy(1u, &copy_b) ? 1u : 0u;
+    if (!s_log_ready) {
+        boot_metadata_t latest;
+        uint32_t max_sequence;
+        uint32_t next_slot;
 
-    /* 作废副本的序号按 0 处理：擦除态读出来是 0xFFFFFFFF，直接取最大值会溢出。 */
-    sequence_a = (valid_a != 0u) ? copy_a.sequence : 0u;
-    sequence_b = (valid_b != 0u) ? copy_b.sequence : 0u;
-
-    /* 只写序号较小的那份，把最新的一份完整留在盘上。 */
-    if (valid_a == 0u) {
-        target = 0u;
-    } else if (valid_b == 0u) {
-        target = 1u;
-    } else {
-        target = (sequence_a <= sequence_b) ? 0u : 1u;
+        (void)memset(&latest, 0, sizeof(latest));
+        (void)boot_metadata_scan(&latest, &max_sequence, &next_slot);
+        s_next_slot = next_slot;
+        s_max_sequence = max_sequence;
+        s_log_ready = true;
     }
 
-    max_sequence = (sequence_a > sequence_b) ? sequence_a : sequence_b;
-    if (max_sequence == 0xFFFFFFFFu) {
-        max_sequence = 0u;
+    boot_metadata_seek_free();
+
+    /* 日志写满才回收整个扇区；这一步之后到新记录写完之前是唯一的无记录窗口。 */
+    if (s_next_slot >= BOOT_METADATA_SLOT_COUNT) {
+        if (!boot_flash_erase_metadata()) {
+            return false;
+        }
+        s_next_slot = 0u;
+    }
+
+    sequence = s_max_sequence;
+    if (sequence == 0xFFFFFFFFu) {
+        sequence = 0u;
     }
 
     record = *metadata;
     record.magic = BOOT_METADATA_MAGIC;
-    record.sequence = max_sequence + 1u;
+    record.sequence = sequence + 1u;
     if (record.reserved != 0u) {
         record.reserved = 0u;
     }
     record.crc32 = boot_metadata_crc(&record);
 
-    if (!boot_flash_write_metadata(target, &record, (uint32_t)sizeof(record))) {
+    address = boot_metadata_slot_address(s_next_slot);
+    if (!boot_flash_write_metadata(address, &record, (uint32_t)sizeof(record))) {
+        s_next_slot++;
         return false;
     }
 
     /* 回读校验：Flash 编程失败未必有返回值，读回来对不上就不能认。 */
-    written = boot_metadata_read_copy(target, &copy_a);
+    if (!boot_flash_read(address, (uint8_t *)&readback, (uint32_t)sizeof(readback))) {
+        s_next_slot++;
+        return false;
+    }
+    if (!boot_metadata_verify(&readback) || (readback.sequence != record.sequence)) {
+        s_next_slot++;
+        return false;
+    }
 
-    return written && (copy_a.sequence == record.sequence);
+    s_next_slot++;
+    s_max_sequence = record.sequence;
+
+    return true;
 }
 
 void boot_metadata_defaults(boot_metadata_t *metadata)

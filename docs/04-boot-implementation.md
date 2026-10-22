@@ -21,7 +21,7 @@ updated: 2026-10-14
 
 ## 📋 0. 交付范围与代码地图
 
-v0.2.0-dev 展开的工作（跳转闭环、Flash 分区对称化、跨复位通信（SRAM 邮箱）、元数据双副本、寄存器级 Flash 驱动）后续均已继续推进。**以下为当前实现**：完整的 UART + YMODEM 接收链路已串联——Boot 侧 `Boot/Protocol/boot_update.c` + `boot_cli.c` 搭配 `Common/ota/ota_ymodem.c`，App 侧 `app_ota_service` / `app_transport`；硬件无关模块集中到 `Common/ota/`，由两侧工程各自编译共享。v0.4.0 的 X-01 镜像验签已落地——`Boot/Crypto/` 引入 `boot_verify` 验签封装与 `boot_pubkey` 内置公钥（vendored Monocypher），镜像头升至 v2，上位机负责签名与传签（§8）。v0.1.0 起的历史决策（BKP → SRAM 邮箱迁移等）作为存档保留在 §1.4。
+v0.2.0-dev 展开的工作（跳转闭环、Flash 分区对称化、跨复位通信（SRAM 邮箱）、元数据持久化、寄存器级 Flash 驱动）后续均已继续推进。**以下为当前实现**：完整的 UART + YMODEM 接收链路已串联——Boot 侧 `Boot/Protocol/boot_update.c` + `boot_cli.c` 搭配 `Common/ota/ota_ymodem.c`，App 侧 `app_ota_service` / `app_transport`；硬件无关模块集中到 `Common/ota/`，由两侧工程各自编译共享。v0.4.0 的 X-01 镜像验签已落地——`Boot/Crypto/` 引入 `boot_verify` 验签封装与 `boot_pubkey` 内置公钥（vendored Monocypher），镜像头升至 v2，上位机负责签名与传签（§8）。v0.1.0 起的历史决策（BKP → SRAM 邮箱迁移等）作为存档保留在 §1.4。
 
 ```text
 Keil_OTA_Boot/Boot/                        Bootloader 侧模块
@@ -36,7 +36,7 @@ Keil_OTA_Boot/Boot/                        Bootloader 侧模块
 ├── Storage/
 │   ├── Src/boot_flash.c                  寄存器级 Flash 擦写（有界轮询）+ 写范围守卫
 │   ├── Src/boot_image.c                  槽内镜像校验（头 + 载荷 CRC32 + 向量表）
-│   ├── Src/boot_metadata.c               元数据双副本 load / save
+│   ├── Src/boot_metadata.c               元数据追加日志 load / save
 │   ├── Src/boot_nvs.c                    参数数据区（NVS）读写
 │   ├── Src/boot_slot_writer.c            槽写入会话（擦除 / 顺序追加 / 边收边算 CRC32）
 │   ├── Src/boot_adopt.c                  给"Keil 直接烧录、无长度信息"的槽补镜像头并提交 pending
@@ -90,7 +90,7 @@ Boot 与 App 之间需要一条"软件复位后还在"的通信信道（请求�
 | 普通 SRAM（.data/.bss） | ✗ 启动代码清零/重拷 | ✗ | — | — | 不可用 |
 | **`.noinit` SRAM 邮箱** | ✓ 链接器不触碰 | ✗ | 32 字节 | magic + CRC32 | **v0.2.0 选择** |
 | RTC 备份寄存器（BKP） | ✓ | ⚠️ 仅接 VBAT | 20×4 字节 | 仅逐寄存器魔数 | v0.1.0 曾用，已弃（§1.4） |
-| Flash 元数据区 | ✓ | ✓ | 32 KB | 记录级 CRC32 | 持久状态的正解（v0.2.0 已引入，见 §3） |
+| Flash 元数据区 | ✓ | ✓ | 128 KB | 记录级 CRC32 + 追加日志 | 持久状态的正解（v0.2.0 已引入，见 §3） |
 
 从 BKP 迁到 SRAM 邮箱的动机：**BKP 逐寄存器独立、没有整体完整性语义**——写者崩溃在"写完字段、还没写完魔数"的中间态时，读方无法察觉；且 20 个寄存器的容量上限决定了协议扩展空间。SRAM 邮箱把 8 个 32 位字段打包为一条记录，用 magic + CRC32 做**整箱校验**，写者崩溃的任何中间态都会导致 CRC 失配 → 整箱作废重置——失败模式是"丢失一次请求、回到安全态"，而不是"执行一个半成品指令"。
 
@@ -116,7 +116,7 @@ Boot 与 App 之间需要一条"软件复位后还在"的通信信道（请求�
 
 ### 1.3 双计数载体：为什么 attempts 的主战场在元数据
 
-v0.1 的连续启动计数放 BKP，v0.2 起主计数走 `metadata.boot_attempts`（Flash 双副本，§3），邮箱的 `attempts` 字段与 `boot_mailbox_attempts()` 读取接口保留但当前无人调用。迁移原因：计数必须**先于跳转提交**（架构文档 §7.4），而"提交"要对掉电也成立——SRAM 邮箱掉电即失，若计数只在邮箱，一次掉电就绕过 F-04 回滚保护。Flash 元数据的双副本写入天然满足"掉电任意时刻至少一份有效"（§3.2）。
+v0.1 的连续启动计数放 BKP，v0.2 起主计数走 `metadata.boot_attempts`（Flash 追加日志，§3），邮箱的 `attempts` 字段与 `boot_mailbox_attempts()` 读取接口保留但当前无人调用。迁移原因：计数必须**先于跳转提交**（架构文档 §7.4），而"提交"要对掉电也成立——SRAM 邮箱掉电即失，若计数只在邮箱，一次掉电就绕过 F-04 回滚保护。Flash 元数据的追加写入天然满足"掉电任意时刻至少前一条记录有效"（§3.2）。
 
 ### 1.4 历史：v0.1.0 为什么曾选 BKP
 
@@ -205,17 +205,17 @@ __set_MSP(sp);                  /* 换栈                          */
 
 ## ⚡ 3. 计数先于跳转提交：掉电窗口分析
 
-[01-architecture.md](01-architecture.md) §7.4 要求 `boot_attempts++` 必须发生在跳转**之前**。v0.2 起计数提交在 Flash 元数据（`boot_metadata_save`），不再是 v0.1 那种单条 STR 原子写——提交被展开为"擦除目标副本 → 写入 → 回读校验"三步，用断电点枚举法验证每个窗口：
+[01-architecture.md](01-architecture.md) §7.4 要求 `boot_attempts++` 必须发生在跳转**之前**。v0.2 起计数提交在 Flash 元数据（`boot_metadata_save`），不再是 v0.1 那种单条 STR 原子写——提交被展开为"追加写入 → 回读校验"两步，只有日志写满时才多一次整扇区擦除，用断电点枚举法验证每个窗口：
 
 ```mermaid
 sequenceDiagram
     participant B as Boot
-    participant F as Flash 元数据<br/>(副本 A / 副本 B)
+    participant F as Flash 元数据日志<br/>(sector 11)
     participant A as App(激活槽)
 
-    B->>F: load：取有效且 sequence 较大的副本
+    B->>F: load：扫描日志，取有效且 sequence 最大的记录
     B->>B: attempts++ / sequence++
-    B->>F: commit（按 sequence 奇偶交替选目标副本）
+    B->>F: commit（追加到下一条擦除态记录位）
     Note over B,F: 断电点 P1 → 见下表
     B->>A: 跳转
     Note over A: 断电点 P2 → 复位后 attempts 已落盘，继续累积 ✓
@@ -227,21 +227,22 @@ sequenceDiagram
 
 | 断电点 | 位置 | 复位后状态 | 结果 |
 |---|---|---|---|
-| P1a | commit 擦除目标副本后、写入前 | 另一副本（sequence 旧 1）有效 | **本次 ++ 丢失**，计数停在旧值——偏松方向：多给 App 一次机会，不会误拒跳 ✓ |
-| P1b | commit 写入后（回读校验前后均同） | 新副本有效且 sequence 更大 | 计数已生效 ✓ |
+| P1a | 追加记录写了一半 | 上一条记录仍然有效（半截记录 CRC 不通过） | **本次 ++ 丢失**，计数停在旧值——偏松方向：多给 App 一次机会，不会误拒跳 ✓ |
+| P1b | 追加记录写完（回读校验前后均同） | 新记录有效且 sequence 更大 | 计数已生效 ✓ |
+| P1c | 日志写满，整扇区擦除后、新记录写入前 | 扇区内没有任何有效记录 | 以默认值停在升级模式，**不会自动启动 App**；可经 CLI 恢复，属于已知窗口 |
 | P2 | 跳转后 App 崩溃、未确认 | attempts 已落盘 | 累积到 `BOOT_MAX_ATTEMPTS` 触发拒跳 ✓ |
 | P3 | App 已写 'CONF'、Boot 未消费 | CONF 在 SRAM 邮箱存活（软件复位） | 下次消费并清零 ✓ |
 | App 反复崩溃 | 每周期都是 P2 | attempts 累积到 3 | 拒跳，停留升级模式 ✓ |
 
 不变式"**任意时刻断电，下次上电必然回到一个可启动的状态**"在每个断点都成立。P1a 是唯一丢计数的窗口，且失败方向是安全的（多试一次而非误回滚）。
 
-### 3.1 代价：每次启动一次 sector 擦写
+### 3.1 代价：追加写与日志回收
 
-`PREPARE_BOOT` 每次都 commit 元数据 = 轮流擦写 sector 2/3（各 16 KB，标称 1 万次擦写周期）。两副本交替承担，等效 2 万次启动余量——开发期每天重启上百次也够用数年，**量产前需要评估**。业界替代（MCUboot 风格）：把 attempts 放在槽尾 trailer 由槽自管理，元数据只在切换事件时提交；本项目 v0.3 引入掉电注入测试时一并权衡。
+只有**状态发生变化的提交**才写元数据（试运行计数递增、confirm、作废 pending、adopt、自愈改 active），普通启动只读不写。每次提交向 sector 11 追加一条 32 字节记录，不擦除扇区；4096 条记录写满才整扇区擦除回收一次。一次完整升级通常写 3～5 条（pending、最多 3 次试运行计数、confirm），因此**约 800 次升级才触发一次扇区擦除**——sector 11 标称 1 万次擦写周期，余量以百万次升级计，量产无需担心。业界替代（MCUboot 风格）：把 attempts 放在槽尾 trailer 由槽自管理，元数据只在切换事件时提交；本项目 v0.3 引入掉电注入测试时一并权衡。
 
-### 3.2 双副本为什么能兜底
+### 3.2 追加日志为什么能兜底
 
-commit 按 `sequence` 奇偶交替选目标（偶写 A、奇写 B），load 取"有效且 sequence 较大"者。两份副本各占一个独立 sector（2/3），擦除其中一份永远不会波及另一份（F4 擦除单元是整个 sector，这是分区表为元数据划出两个 sector 的原因，见 [01-architecture.md](01-architecture.md) §5.2 推导 1）。于是"擦除目标 → 写入"的任意中间态掉电，另一份完整副本始终可加载。
+load 扫描整个扇区，取"CRC 自洽且 sequence 最大"的一条；save 只往第一个擦除态记录位追加，从不改写已有记录。于是"写记录"的任意中间态掉电，只会留下一条半截记录——CRC 不通过，扫描时被跳过，**前一条完整记录始终有效**。唯一没有有效记录的窗口是日志写满后整扇区擦除到新记录写完之间（§3 表格 P1c），此时设备以默认值停在升级模式，可经 CLI 恢复，但不会自动启动 App。
 
 ## 🤝 4. App 侧集成约定（`Keil_App/App/BootClient/`）
 
@@ -292,7 +293,7 @@ app_transport_init();           /* ③ 串口与命令行就绪                 
 
 | 工程 | 链接基址 | 产物 | 源码 |
 |---|---|---|---|
-| `Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx` | 0x08000000（sector 0-1） | `Keil_OTA_Boot\*.axf/.hex` | Core + Boot + HAL |
+| `Keil_OTA_Boot/MDK-ARM/Keil_OTA_Boot.uvprojx` | 0x08000000（sector 0-3） | `Keil_OTA_Boot\*.axf/.hex` | Core + Boot + HAL |
 | `Keil_App/MDK-ARM/Keil_App.uvprojx` | 0x08020200（Slot A 槽底 0x08020000，sector 5-7，`Keil_App_Slot_A.sct`） | `Keil_App\*.axf/.hex` | Core + App + HAL |
 
 两个工程分居 `Keil_OTA_Boot/` 与 `Keil_App/` 目录：各自的业务代码互不引用，硬件无关模块集中在 `Common/ota/`（`ota_ymodem` / `ota_cli` / `ota_crc32` / `ota_image` / `ota_request`），由两侧工程各自编译；分区常量 Boot 侧在 `boot_conf.h`、App 侧在 `app_config.h`，数值逐字节对齐，`boot_conf.h` 是唯一事实来源。命令行批编译：
@@ -303,18 +304,18 @@ E:\Keil5\UV4\UV4.exe -b "Keil_App\MDK-ARM\Keil_App.uvprojx"           -j0 -o app
 ```
 
 > [!IMPORTANT]
-> **烧录时两个工程都必须用默认的 Erase Sectors 模式**（Keil Flash Download 默认值）。Erase Sectors 只擦 hex 内容覆盖的 sector：Boot 烧录只擦 sector 0-1，App 烧录只擦 sector 5-7，互不伤害。若误选 Erase Full Chip，后烧的工程会把先烧的整个抹掉。
+> **烧录时两个工程都必须用默认的 Erase Sectors 模式**（Keil Flash Download 默认值）。Erase Sectors 只擦 hex 内容覆盖的 sector：Boot 烧录只擦 sector 0-3，App 烧录只擦 sector 5-7，互不伤害。若误选 Erase Full Chip，后烧的工程会把先烧的整个抹掉。
 
-### 5.3 引入签名后 Boot 的 32 KB 预算
+### 5.3 引入签名后 Boot 的 Flash 预算
 
-X-01 落地使 Boot 的 ROM 增量约 15 KB，逼近 32 KB 上限。四条并用把镜像压回预算内：
+X-01 落地使 Boot 的 ROM 增量约 15 KB，32 KB 时代曾逼近上限；现分区给 Boot 64 KB（sector 0-3），32 KB 时代沉淀的四条压缩措施仍保留：
 
 1. **选择性链接**：`<OneElfS>1` 让未用到的 Monocypher 函数各占独立节区被剔除（§8.5），实际只保留 `crypto_ed25519_check` / `crypto_sha512_*` 链；
 2. **启用 microlib**：`Keil_OTA_Boot.uvprojx` 的 `<useUlib>` 置 1。Boot 无 `printf` / `malloc` 依赖，microlib 安全且显著缩小 C 库；
-3. **收紧 scatter 预留**：`Keil_OTA_Boot.sct` 里代码区 `LR_IROM1` 由 `0x7800` 放宽到 `0x7C00`，RAM 函数在 Flash 的初值副本段 `LR_RAMCODE` / `ER_RAMCODE` 由 `0x08007800/0x800` 收为 `0x08007C00/0x400`（实际 `BOOT_RAMCODE` 仅 0x218 字节），`RW_IRAM2` 相应改为 `0x2001BC00/0x43E0`，把回收的约 1 KB 让给代码区。Boot 仍完整占满 sector 0-1 的 32 KB。
+3. **收紧 scatter 预留**：`Keil_OTA_Boot.sct` 里代码区 `LR_IROM1` 为 `0xFC00`，RAM 函数在 Flash 的初值副本段 `LR_RAMCODE` 为 `0x0800FC00/0x400`（实际 `BOOT_RAMCODE` 约 0x230 字节），`RW_IRAM2` 为 `0x2001BC00/0x43E0`。Boot 完整占满 sector 0-3 的 64 KB。
 4. **保持 `-O2` 优化**：target 级 `<Optim>` 必须为 `3`（-O2）。若该值被重置为 `1`（-O0，CubeMX 重新生成工程时会如此），Boot 代码区会膨胀约 7 KB 并触发 L6406E/L6407E，链接失败；`-O3`（`4`）实测 ROM 反而略大于 `-O2`，故选定 `-O2`。
 
-构建验收（`-O2`）：Boot `LR_IROM1` 实测 `0x78A8`（≤ 上限 `0x7C00`）、`LR_RAMCODE` `0x218`（≤ `0x400`），Flash 合计 `0x7AC0`（31424 字节 ≈ 30.7 KB；`Code=26212`、`RO-data=5188`、`RW-data=24`），`0 Error / 0 Warning`；两个 App target（Slot A/B）链接基址仍分别为 `0x08020200` / `0x08080200`，同样 `0 Error / 0 Warning`。
+构建验收（`-O2`）：GCC 目标当前 FLASH 占用 28528 字节（≈ 27.9 KB，≤ 64 KB），`RAMCODE_RAM` 560 字节（≤ 1 KB），`0 Error / 0 Warning`；两个 App target（Slot A/B）链接基址仍分别为 `0x08020200` / `0x08080200`，同样 `0 Error / 0 Warning`。Keil 侧重新编译后以 `.map` 中 `LR_IROM1` ≤ `0xFC00`、`LR_RAMCODE` ≤ `0x400` 为准。
 
 > [!NOTE]
 > **RAM 侧的等价硬约束：栈至少要有 4 KB。** 验签链路是本工程栈占用最深处，`armlink --callgraph` 静态分析给出的最大栈深为 **2968 字节**（`boot_image_check → boot_verify_image → crypto_ed25519_check → crypto_eddsa_check_equation → ge_tobytes → fe_invert → invsqrt → fe_sq`）。CubeMX 生成的 `MDK-ARM/startup_stm32f407xx.s` 默认 `Stack_Size EQU 0x400`（1 KB）远不够用：真机一旦真正走进验签就会栈溢出触发 HardFault，表现为主机上送 EOT 后既无 `OK ota=done` 也无 `ERR` 行。现为 `0x1000`（4 KB），余量约 1.1 KB。栈位于 `RW_IRAM1` 顶部（`__initial_sp = 0x20001970`，栈底 `0x20000970`），与 SRAM2 顶部 32 字节邮箱（`0x2001FFE0`）不相交。
@@ -325,7 +326,7 @@ X-01 落地使 Boot 的 ROM 增量约 15 KB，逼近 32 KB 上限。四条并用
 
 ### 6.1 烧录与预期现象
 
-**通用规则**：两个工程都用 Keil 的 Flash → Download 通过 SWD 烧录，务必保持默认的 **Erase Sectors** 模式（见 §5.2 的 IMPORTANT）。Boot 烧到 `0x08000000`（只擦 sector 0-1），App 烧到 `0x08020000`（只擦 sector 5-7）。同一块板先烧 Boot，再烧 App。
+**通用规则**：两个工程都用 Keil 的 Flash → Download 通过 SWD 烧录，务必保持默认的 **Erase Sectors** 模式（见 §5.2 的 IMPORTANT）。Boot 烧到 `0x08000000`（只擦 sector 0-3），App 烧到 `0x08020000`（只擦 sector 5-7）。同一块板先烧 Boot，再烧 App。
 
 **开发调试路径（`boot_conf.h` 的 `BOOT_REQUIRE_SIGNATURE = 0`）**
 
@@ -368,9 +369,9 @@ X-01 落地使 Boot 的 ROM 增量约 15 KB，逼近 32 KB 上限。四条并用
 |---|---|---|---|
 | 1 | 跳转用 C 函数指针而非汇编 | AC5 实测代码生成不触旧栈（§2.3） | 工具链迁移时改汇编（§2.3） |
 | 2 | 跳转剥离清单未清 `FPU->FPCCR`、未恢复 `PRIMASK` | 跳转路径不使用浮点、不响应中断；PRIMASK 由 App 侧启动早期自行使能 | 与 App 集成一并核对并补回（§2.2 NOTE） |
-| 3 | 每次启动 commit 元数据 = 一次 sector 擦写 | 双副本交替，等效 2 万次启动余量（§3.1） | v0.3 掉电注入测试时权衡槽尾 trailer 方案 |
+| 3 | 日志写满回收时存在一个无有效元数据的掉电窗口 | 追加写本身掉电安全（半截记录被跳过）；窗口内设备停升级模式，可经 CLI 恢复（§3.2） | v0.3 掉电注入测试覆盖该窗口，并评估槽尾 trailer 方案 |
 | 4 | 回滚只能由"坏固件自己复位"驱动 | 决策与计数逻辑已就绪，App 自检失败或收到新固件都会主动复位 | 引入 IWDG：Boot 跳 pending 槽前使能看门狗，死循环/卡死也能驱动计数（v0.3） |
-| 5 | `boot_pubkey.c` 里的公钥出厂为占位全 0 | 全 0 不是曲线上的有效点，任何签名都验不过，防止"忘换公钥"被悄悄放过 | 量产前用上位机 `--genkey` 生成密钥对，将公钥填入数组后重编译 Boot（§8.4） |
+| 5 | 公钥以源码常量固化，轮换必须重编 Boot | 当前 `boot_pubkey.c` 已填入与签名机 `signing.key` 配对的公钥，验签链路可用 | 更换私钥时同步替换 `boot_pubkey_ed25519[32]` 并重编译 Boot（§8.4） |
 | 6 | YMODEM 第 0 包改为 1024 字节长帧（STX）承载签名 | `sig=`（128 hex）令牌装不进 128 字节短包；设备侧早已支持 STX，结束包不受影响仍是 SOH/128 | 无（协议固化，见 §8.3） |
 
 ## 🔐 8. 镜像验签（Ed25519）
@@ -420,7 +421,7 @@ digest   = SHA-512(prologue ‖ payload)          # 64 字节
 
 ### 8.5 体积与选择性链接
 
-Monocypher 以源码 vendored 到 `Boot/Crypto/monocypher/`（CC0），配合 AC5 的 `<OneElfS>1`（One ELF Section per Function）只把实际用到的 `ed25519_check` / `sha512_*` 链进镜像：map 的 `Removing` 列表显示 argon2 / x25519 / aead / blake2b / chacha20 / poly1305 / sha512_hmac / eddsa_sign 等 499 个未用节区（约 59.6 KB）被剔除。即便如此 ROM 增量约 15 KB，Boot 的 32 KB 预算吃紧，为此启用 **microlib** 并收紧 scatter 中 RAM 函数区预留，详见 §5.3。
+Monocypher 以源码 vendored 到 `Boot/Crypto/monocypher/`（CC0），配合 AC5 的 `<OneElfS>1`（One ELF Section per Function）只把实际用到的 `ed25519_check` / `sha512_*` 链进镜像：map 的 `Removing` 列表显示 argon2 / x25519 / aead / blake2b / chacha20 / poly1305 / sha512_hmac / eddsa_sign 等 499 个未用节区（约 59.6 KB）被剔除。即便如此 ROM 增量约 15 KB；这些压缩措施在 64 KB 分区下仍全部保留，用于降低占用、给后续功能留余量，详见 §5.3。
 
 ---
 

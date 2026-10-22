@@ -21,11 +21,10 @@
 #define BOOT_FLASH_SIZE            (1024u * 1024u)            /* 片内 Flash 总容量 */
 
 #define BOOT_BOOT_ADDR             (0x08000000u)              /* Bootloader 区起始，sector 0 */
-#define BOOT_BOOT_SIZE             (32u * 1024u)              /* Bootloader 区长度，sector 0-1 */
+#define BOOT_BOOT_SIZE             (64u * 1024u)              /* Bootloader 区长度，sector 0-3 */
 
-#define BOOT_METADATA_A_ADDR       (0x08008000u)              /* Metadata 副本 A，sector 2 */
-#define BOOT_METADATA_B_ADDR       (0x0800C000u)              /* Metadata 副本 B，sector 3 */
-#define BOOT_METADATA_SIZE         (16u * 1024u)              /* 单个 Metadata 占满一个扇区 */
+#define BOOT_METADATA_ADDR         (0x080E0000u)              /* Metadata 追加日志区，sector 11 */
+#define BOOT_METADATA_SIZE         (128u * 1024u)             /* 日志区长度，整个扇区 */
 
 #define BOOT_NVS_ADDR              (0x08010000u)              /* 参数数据区，sector 4 */
 #define BOOT_NVS_SIZE              (64u * 1024u)              /* 参数数据区长度 */
@@ -34,9 +33,6 @@
 #define BOOT_SLOT_B_ADDR           (0x08080000u)              /* Slot B 起始，sector 8 */
 #define BOOT_SLOT_SIZE             (384u * 1024u)             /* 单槽容量，含 0x200 镜像头 */
 #define BOOT_SLOT_SECTOR_COUNT     (3u)                       /* 单槽跨 3 个 128 KB 扇区 */
-
-#define BOOT_RESERVED_ADDR         (0x080E0000u)              /* 预留区起始，sector 11 */
-#define BOOT_RESERVED_SIZE         (128u * 1024u)             /* 预留区长度 */
 
 /* ------------------------------ 槽位标识 ------------------------------ */
 #define BOOT_SLOT_ID_A             (0u)                       /* Slot A 的编号 */
@@ -80,12 +76,37 @@
 #error "邮箱越出 SRAM 上界"
 #endif
 
+#if (BOOT_BOOT_ADDR + BOOT_BOOT_SIZE) > BOOT_NVS_ADDR
+#error "Boot 区越入参数数据区"
+#endif
+
+#if (BOOT_NVS_ADDR + BOOT_NVS_SIZE) > BOOT_SLOT_A_ADDR
+#error "参数数据区越入 Slot A"
+#endif
+
 #if (BOOT_SLOT_A_ADDR + BOOT_SLOT_SIZE) > BOOT_SLOT_B_ADDR
 #error "Slot A 与 Slot B 重叠"
 #endif
 
-#if (BOOT_SLOT_B_ADDR + BOOT_SLOT_SIZE) > BOOT_RESERVED_ADDR
-#error "Slot B 越入预留区"
+#if (BOOT_SLOT_B_ADDR + BOOT_SLOT_SIZE) > BOOT_METADATA_ADDR
+#error "Slot B 越入 Metadata 区"
+#endif
+
+#if (BOOT_METADATA_ADDR + BOOT_METADATA_SIZE) > (BOOT_FLASH_BASE + BOOT_FLASH_SIZE)
+#error "Metadata 区越出片内 Flash"
+#endif
+
+/* 分区边界必须落在扇区边界上：NVS 与 Metadata 分别是 64 KB / 128 KB 扇区。 */
+#if ((BOOT_NVS_ADDR & 0xFFFFu) != 0u)
+#error "参数数据区未按 64 KB 扇区对齐"
+#endif
+
+#if ((BOOT_SLOT_A_ADDR & 0x1FFFFu) != 0u) || ((BOOT_SLOT_B_ADDR & 0x1FFFFu) != 0u)
+#error "槽起始地址未按 128 KB 扇区对齐"
+#endif
+
+#if ((BOOT_METADATA_ADDR & 0x1FFFFu) != 0u)
+#error "Metadata 区未按 128 KB 扇区对齐"
 #endif
 
 #endif /* BOOT_CONF_H */

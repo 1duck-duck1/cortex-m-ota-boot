@@ -295,7 +295,7 @@ git commit -m "chore: 移除误提交的构建产物"
 
 | 类型 | 用途 | 示例 |
 |---|---|---|
-| `feat` | 新功能 | `feat(meta): 元数据双副本轮换写入` |
+| `feat` | 新功能 | `feat(meta): 元数据追加日志写入` |
 | `fix` | 修 Bug | `fix(fsm): 修复 boot_attempts 未在跳转前提交的问题` |
 | `refactor` | 重构，不改行为 | `refactor(core): 抽出 erase_unit 抽象以支持 F4 sector` |
 | `perf` | 性能优化 | `perf(flash): 减少擦除单元重复查询` |

@@ -47,7 +47,7 @@ flowchart TD
     subgraph CORE["core/ ── 纯逻辑层（零硬件依赖 · PC 可测）★ 核心资产"]
         direction LR
         C1["boot_fsm<br/>升级状态机"]
-        C2["boot_meta<br/>元数据双副本"]
+        C2["boot_meta<br/>元数据追加日志"]
         C3["boot_image<br/>固件头解析"]
         C4["boot_proto<br/>命令协议"]
         C5["boot_flash<br/>通用 Flash 操作"]
@@ -95,7 +95,7 @@ flowchart TD
 │   │
 │   ├── core/                 纯 C，零硬件依赖（v0.3.0 引入）
 │   │   ├── boot_fsm.c/.h     升级状态机
-│   │   ├── boot_meta.c/.h    元数据双副本读写
+│   │   ├── boot_meta.c/.h    元数据追加日志读写
 │   │   ├── boot_image.c/.h   固件头解析与校验
 │   │   ├── boot_flash.c/.h   通用 Flash 操作（擦除单元感知）
 │   │   ├── boot_proto.c/.h   YMODEM + 命令协议
@@ -176,7 +176,7 @@ typedef struct {
 typedef struct {
     /* ---- 分区布局（真板与 mock 各一份，数值必须一致） ---- */
     boot_region_t boot;         /* Bootloader 自身区域 */
-    boot_region_t meta;         /* 元数据区域（含双副本） */
+    boot_region_t meta;         /* 元数据区域（扇区内追加日志） */
     boot_region_t slot[2];      /* Slot A / Slot B */
 
     /* ---- Flash 基本能力 ---- */
@@ -215,7 +215,7 @@ const boot_mcu_t *boot_mcu_get(void);
 ### 设计要点说明
 
 - **`erase_unit_base/size` 必须是函数**：F4 的 sector 大小不均，`core` 只使用"擦除单元"这个概念，任何地方都不允许出现 `FLASH_SECTOR_SIZE` 这类平台宏。
-- **mock 必须照抄真实的 sector 尺寸表**，而不是一段等大的假 Flash——否则测不出"跨 sector 边界被擦坏"这类真实缺陷，而元数据双副本恰好就卡在这个边界上。
+- **mock 必须照抄真实的 sector 尺寸表**，而不是一段等大的假 Flash——否则测不出"跨 sector 边界被擦坏"这类真实缺陷，而元数据日志的整扇区回收恰好依赖这个边界。
 - **`erase` 的长度语义按擦除单元处理**：`core` 负责把请求对齐到擦除单元边界，芯片层负责实际擦除。
 - **`app_entry_get/app_stack_get` 而非直接读地址**：向量表取值这一步由芯片层封装，`core` 不假设 Cortex-M4 之外的内核布局。
 - **`mailbox_*` 抽出为接口**：真板用 `.noinit` SRAM 邮箱（`Boot/Mailbox/boot_mailbox.c`），mock 用一个静态变量，差异在此处吸收。
@@ -243,21 +243,20 @@ F407VGT6 的 1 MB Flash 由 12 个 sector 组成，**大小不均**：
 
 | 区域 | 起止地址 | 大小 | 占用 sector |
 |---|---|---|---|
-| Bootloader | 0x08000000 – 0x08007FFF | 32 KB | 0 – 1 |
-| Metadata | 0x08008000 – 0x0800FFFF | 32 KB | 2 – 3 |
-| 参数数据区 | 0x08010000 – 0x0801FFFF | 64 KB | 4 |
+| Bootloader | 0x08000000 – 0x0800FFFF | 64 KB | 0 – 3 |
+| 参数数据区（NVS） | 0x08010000 – 0x0801FFFF | 64 KB | 4 |
 | Slot A | 0x08020000 – 0x0807FFFF | 384 KB | 5 – 7 |
 | Slot B | 0x08080000 – 0x080DFFFF | 384 KB | 8 – 10 |
-| 保留 | 0x080E0000 – 0x080FFFFF | 128 KB | 11 |
+| Metadata | 0x080E0000 – 0x080FFFFF | 128 KB | 11 |
 
 三条推导理由：
 
-1. **元数据的两个副本必须落在不同 sector**。擦除单元是整个 sector，双副本若同处一个 sector，更新其中一份就会把另一份一起擦掉，"任意时刻至少一份有效"这条地基直接失效。所以 Metadata 取 32 KB＝sector 2 + sector 3，一份副本占一个 sector。
-2. **Boot + Meta 把 4 个小 sector（共 64 KB）一次吃干净**；sector 4 划为参数数据区，两个槽从 sector 5 的 128 KB 边界开始，槽内擦除永远不会波及前面的区域。
-3. **A/B 两槽等大（各 384 KB）**，打包工具只需要一条容量规则。sector 4 是唯一的 64 KB sector，划入任一槽都会破坏等容，因此独立作参数数据区（NVS 预留）；sector 11 整块保留，擦除任一槽都不波及其他区域，保留区可存放需长期存活的数据（如救援镜像、崩溃日志）。
+1. **Boot 需要 64 KB 时，sector 0–3 必须整块给它**；sector 4 是唯一的 64 KB 扇区，继续作参数数据区（NVS），两个槽仍从 sector 5 的 128 KB 边界开始。
+2. **A/B 两槽等大（各 384 KB）**，打包工具只需要一条容量规则。sector 5–11 共 7 个 128 KB 扇区，是奇数，无法等分成两个 448 KB：448 KB 会切在 sector 8 中间，两槽共用一个擦除单元。384 + 384 之后必然剩下 sector 11，正好留给 Metadata。
+3. **Metadata 改为 sector 11 内的追加日志**。sector 11 只有一个擦除单元，放不下两份互相独立的副本；日志按 32 字节一条顺序追加，写满整个扇区才擦除回收一次。追加写本身掉电安全，唯一窗口是写满后整扇区擦除到新记录写完之间——此时设备以默认值停在升级模式，可恢复但不会自动启动 App。
 
 > [!CAUTION]
-> **不要为了"省那 64 KB"把 Slot B 扩到 512 KB。** 两槽不等大意味着打包校验、元数据格式、上位机三处都要处理两套容量，而收益只有 64 KB——这是典型的用复杂度换微小空间。
+> **不要为了"省那 64 KB"把 Slot B 扩到 512 KB。** 两槽不等大意味着打包校验、元数据格式、上位机三处都要处理两套容量，而可用的最大镜像仍受较小槽限制——这是典型的用复杂度换不到空间。
 
 ### 5.3 布局以什么形式存在
 
@@ -266,8 +265,8 @@ F407VGT6 的 1 MB Flash 由 12 个 sector 组成，**大小不均**：
 ```c
 /* code/mcu/stm32f4/mcu_stm32f4.c */
 static const boot_mcu_t s_mcu_f407 = {
-    .boot = { 0x08000000, 32  * 1024 },
-    .meta = { 0x08008000, 32  * 1024 },   /* 副本 0 在 sector 2，副本 1 在 sector 3 */
+    .boot = { 0x08000000, 64  * 1024 },
+    .meta = { 0x080E0000, 128 * 1024 },   /* 追加日志，独占 sector 11 */
     .slot = {
         { 0x08020000, 384 * 1024 },       /* Slot A */
         { 0x08080000, 384 * 1024 },       /* Slot B */
@@ -330,7 +329,7 @@ typedef struct {
 
 **为什么头区占满 0x200 字节**：`SCB_VTOR_TBLOFF_Msk` 会截断 VTOR 的低 7 位，只有 512 字节对齐才能保证 VTOR 落在槽内向量表上（64 字节头曾被证明会截断出错）。因此载荷偏移取 `0x200`，头区既是自描述头，也是天然的 VTOR 对齐缓冲；同时 Bootloader 只需读这一段 `0x200` 字节即可完成初步合法性判断。
 
-### 6.2 元数据（双副本，原子更新）
+### 6.2 元数据（追加日志，原子追加）
 
 ```c
 #define BOOT_METADATA_MAGIC  0x4D455441u   /* 小端字节序：'META' */
@@ -349,24 +348,25 @@ typedef struct {
 
 记录里只放槽编号与计数，不放版本号与长度——那些属于镜像头，从镜像本身读，避免同一份信息在两处各存一份后慢慢分歧。
 
-副本 A 落在 sector 2（`BOOT_METADATA_A_ADDR = 0x08008000`），副本 B 落在 sector 3（`BOOT_METADATA_B_ADDR = 0x0800C000`）——**各自独占一个 16 KB sector，这是分区布局为它让出 32 KB 的原因**。
+Metadata 整体落在 sector 11（`BOOT_METADATA_ADDR = 0x080E0000`，`BOOT_METADATA_SIZE = 128 KB`），按追加日志存放：每条记录 32 字节，最多 4096 条。
 
-**原子更新算法**（`Boot/boot_metadata.c` 已实现）：
+**更新算法**（`Boot/boot_metadata.c` 已实现）：
 
 ```
 写记录(save):
-  1. 读出两份副本，无效副本的 sequence 记为 0
-  2. 选 sequence 较小的一份作为写入目标（保住更新那份不被擦除波及）
-  3. 新 sequence = 两份中较大者 + 1（0xFFFFFFFF 回卷为 0）
-  4. 填 magic、清 reserved，写入目标副本
-  5. crc32 最后计算并写入
-  6. 回读并用同样的校验规则验证
+  1. 扫描日志，取 sequence 最大的自洽记录；记录下一条擦除态位置
+  2. 新 sequence = 最大 sequence + 1（0xFFFFFFFF 回卷为 0）
+  3. 填 magic、清 reserved、计算 crc32
+  4. 追加写入下一个擦除态位置（不擦除扇区）
+  5. 回读并用同样的校验规则验证
+  6. 日志写满（没有擦除态位置）才整扇区擦除一次，再从头部写
 
 读记录(load):
-  1. 逐份检查 magic / crc32
-  2. 两份均有效时取 sequence 较大者（相等取副本 A）；仅一份有效取该份
-  3. 两份都无效（出厂或极端损坏）→ 用默认值：active=NONE, pending=NONE,
-     attempts=0, max_attempts=BOOT_DEFAULT_MAX_ATTEMPTS(3), sequence=1
+  1. 扫描整个扇区，跳过擦除态与 crc32 不自洽的记录位
+  2. 取 sequence 最大的自洽记录
+  3. 一条都没有（出厂或日志回收窗口内掉电）→ 用默认值：active=NONE,
+     pending=NONE, attempts=0, max_attempts=BOOT_DEFAULT_MAX_ATTEMPTS(3),
+     sequence=1
 ```
 
 **内存语义**（以下接口只改内存，由调用方决定何时 `save()` 落盘）：
@@ -376,7 +376,7 @@ typedef struct {
 - `clear_pending()`：清 `pending_slot` 与计数、**不动 `active_slot`**（回滚即什么都不做，下次启动自然选回 active）；
 - `set_attempts(n)`：写入 pending 槽的试运行次数。
 
-**容错边界**：擦除/写入过程中掉电，只会损坏"目标那份"，另一份位于**另一个 sector**、不受擦除影响，始终有效。这是掉电安全的基础（逐断电点分析见 [04-boot-implementation.md](04-boot-implementation.md) §3）。
+**容错边界**：追加写过程中掉电，只会留下一条半截记录——CRC 不通过即被扫描跳过，前一条记录始终有效。唯一没有有效记录的窗口是日志写满后整扇区擦除到新记录写完之间，此时设备以默认值停在升级模式，可经 CLI 恢复但不会自动启动 App（逐断电点分析见 [04-boot-implementation.md](04-boot-implementation.md) §3）。
 
 ---
 
@@ -542,7 +542,7 @@ Bootloader 无法直接知道 App 是否"成功运行"，采用**启动尝试计
 | 测试 | 内容 |
 |---|---|
 | `test_image.c` | 固件头校验：magic / CRC / HW ID / 超容量 各类非法输入 |
-| `test_meta.c` | 元数据双副本：正常写、单副本损坏、序号选取、两份全损坏 |
+| `test_meta.c` | 元数据追加日志：正常追加、半截记录跳过、序号选取、日志写满回收 |
 | `test_fsm.c` | 状态机所有转换路径，含非法转换拒绝 |
 | `test_meta_powerloss.c` | **★核心测试**：在元数据写入的每个字节位置注入断电，重新上电后断言必然恢复到可启动状态 |
 | `test_rollback.c` | 模拟 App 连续崩溃，验证 `boot_attempts` 累积并触发回滚 |
